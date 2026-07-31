@@ -140,7 +140,8 @@
   const STORAGE_KEYS = {
     SETTINGS: "copilot_settings",
     ALL_PLAYER_STATS: "copilot_player_stats",
-    HERO_STATS: "copilot_hero_stats"
+    HERO_STATS: "copilot_hero_stats",
+    SEEN_HAND_IDS: "copilot_seen_hand_ids"
   };
   const SUIT_SYMBOL_MAP = {
     "♥": "h",
@@ -627,6 +628,16 @@
   }
   async function saveHeroStats(stats) {
     await chrome.storage.local.set({ [STORAGE_KEYS.HERO_STATS]: stats });
+  }
+  async function getSeenHandIds() {
+    const result = await chrome.storage.local.get(STORAGE_KEYS.SEEN_HAND_IDS);
+    const ids = result[STORAGE_KEYS.SEEN_HAND_IDS];
+    return Array.isArray(ids) ? ids.filter((id) => typeof id === "string") : [];
+  }
+  async function saveSeenHandIds(ids) {
+    await chrome.storage.local.set({
+      [STORAGE_KEYS.SEEN_HAND_IDS]: ids.slice(-5e3)
+    });
   }
   const LOG_PATTERNS = {
     HAND_START: /^-- starting hand #(\d+) \(id: ([a-z0-9]+)\)\s+(.+?) \(dealer: (.+?)\) --$/,
@@ -1270,6 +1281,7 @@
     try {
       statsCache = await getAllPlayerStats();
       heroStats = await getHeroStats();
+      for (const id of await getSeenHandIds()) seenHandIds.add(id);
     } catch {
       statsCache = {};
       heroStats = null;
@@ -1309,6 +1321,8 @@
       return { opponentStats: { ...statsCache }, heroStats, ingested: false };
     }
     seenHandIds.add(hand.handId);
+    saveSeenHandIds([...seenHandIds]).catch(() => {
+    });
     for (const logRef of hand.players) {
       const { playerId, displayName } = resolveIdentity(logRef, hand);
       const isHero = heroPlayerId !== null && playerId === heroPlayerId;
@@ -1647,11 +1661,14 @@
       }
       if (msg.type === "LOG_PULL_REQUEST") {
         const { minHands } = msg;
-        runLogPull({ minHands }).catch((e) => {
+        sendResponse({ started: true });
+        void runLogPull({ minHands }).catch((e) => {
           console.warn("[Copilot] Manual log pull failed:", e);
           return { found: 0, ingested: 0 };
-        }).then(sendResponse);
-        return true;
+        }).then(({ found, ingested }) => {
+          chrome.runtime.sendMessage({ type: "LOG_PULL_RESULT", found, ingested });
+        });
+        return false;
       }
       if (msg.type === "AI_RECOMMENDATION") {
         const shown = highlightAction(msg.kind);
@@ -1697,7 +1714,13 @@
         if (result.failed > 0) {
           console.warn(`[Copilot] ${result.failed} of ${count} hand logs failed to load`);
         }
-        if (result.lines.length > 0) return result.lines;
+        if (result.lines.length > 0) {
+          const nums = result.handNumbers;
+          console.log(
+            `[Copilot] Log API: ${result.lines.length} lines from ${nums.length} hands` + (nums.length ? ` (#${nums[nums.length - 1]}–#${nums[0]})` : "")
+          );
+          return result.lines;
+        }
         console.warn("[Copilot] Log API returned nothing — falling back to the modal");
       } catch (e) {
         console.warn("[Copilot] Log API failed — falling back to the modal:", e);
@@ -1718,7 +1741,7 @@
     if (lines.length === 0) return { found: 0, ingested: 0 };
     const blocks = extractCompletedHandBlocksFromLines(lines);
     if (blocks.length === 0) {
-      console.warn("[Copilot] No completed hand in log");
+      console.warn(`[Copilot] No completed hand among ${lines.length} log lines`);
       return { found: 0, ingested: 0 };
     }
     let opponentStats = getAllStats();
@@ -1739,7 +1762,7 @@
         console.log(`[Copilot] Hand #${hand.handNum} → ${seen.join(" ")}`);
       }
     }
-    if (ingested === 0) return { found: blocks.length, ingested };
+    console.log(`[Copilot] Log pull: ${blocks.length} completed hands, ${ingested} new`);
     updateOverlays(opponentStats, (pid) => chrome.runtime.sendMessage({ type: "EXPLOIT_REQUEST", playerId: pid, stats: opponentStats }));
     chrome.runtime.sendMessage({ type: "STATS_UPDATE", stats: opponentStats });
     chrome.runtime.sendMessage({ type: "GAME_STATE_UPDATE", gameState });

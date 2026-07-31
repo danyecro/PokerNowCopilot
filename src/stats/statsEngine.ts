@@ -1,8 +1,14 @@
 import type { Hand, PlayerIdentity, PlayerStats } from '../shared/types';
 import { createEmptyStats, ingestHandForPlayer, recomputeRatios } from './metrics';
 import { computeTags } from './patternTagger';
-import { getAllPlayerStats, saveAllPlayerStats, getHeroStats, saveHeroStats } from '../shared/storage';
+import {
+  getAllPlayerStats, saveAllPlayerStats, getHeroStats, saveHeroStats,
+  getSeenHandIds, saveSeenHandIds,
+} from '../shared/storage';
 
+// Survives reloads: see saveSeenHandIds. A backfill re-reads hands the stats
+// already contain by design, so this set is the only thing standing between a
+// second pull and double-counted stats.
 const seenHandIds = new Set<string>();
 let statsCache: Record<string, PlayerStats> = {};
 let heroStats: PlayerStats | null = null;
@@ -58,6 +64,7 @@ export async function loadFromStorage(): Promise<void> {
   try {
     statsCache = await getAllPlayerStats();
     heroStats = await getHeroStats();
+    for (const id of await getSeenHandIds()) seenHandIds.add(id);
   } catch {
     // Storage not available in this context — continue with empty cache
     statsCache = {};
@@ -136,6 +143,7 @@ export function ingestHand(hand: Hand): {
     return { opponentStats: { ...statsCache }, heroStats, ingested: false };
   }
   seenHandIds.add(hand.handId);
+  saveSeenHandIds([...seenHandIds]).catch(() => {});
 
   // `logRef` is the raw log string — hand.actions use the same string, so it
   // stays the key for action matching. Stats are keyed by the resolved id.

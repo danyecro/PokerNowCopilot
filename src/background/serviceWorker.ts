@@ -75,18 +75,16 @@ async function handleMessage(msg: ExtMessage): Promise<void> {
     }
 
     case 'LOG_PULL_REQUEST': {
+      // Fire and forget: the content script acknowledges immediately and posts
+      // LOG_PULL_PROGRESS / LOG_PULL_RESULT on its own as the pull runs, so a
+      // long pull cannot be lost to this worker being suspended mid-await.
       const tabId = await findPokerNowTab();
       if (tabId == null) {
         sendToSidePanel({ type: 'AI_STREAM_ERROR', error: 'No PokerNow tab found' });
         return;
       }
       try {
-        const res = await chrome.tabs.sendMessage(tabId, msg) as { found: number; ingested: number } | undefined;
-        sendToSidePanel({
-          type: 'LOG_PULL_RESULT',
-          found: res?.found ?? 0,
-          ingested: res?.ingested ?? 0,
-        });
+        await chrome.tabs.sendMessage(tabId, msg);
       } catch (e) {
         sendToSidePanel({
           type: 'AI_STREAM_ERROR',
@@ -95,6 +93,10 @@ async function handleMessage(msg: ExtMessage): Promise<void> {
       }
       break;
     }
+
+    case 'LOG_PULL_RESULT':
+      sendToSidePanel(msg);
+      break;
 
     default:
       break;

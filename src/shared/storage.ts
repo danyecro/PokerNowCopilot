@@ -1,6 +1,7 @@
 import type { PlayerNote, PlayerStats, Settings } from './types';
 import {
-  DEFAULT_MODEL, MANUAL_LOG_PULL_HANDS, RETIRED_MODELS, STORAGE_KEYS, isKnownModel,
+  DEFAULT_MODEL, MANUAL_LOG_PULL_HANDS, RETIRED_MODELS, SEEN_HAND_IDS_LIMIT,
+  STORAGE_KEYS, isKnownModel,
 } from './constants';
 
 const DEFAULT_SETTINGS: Settings = {
@@ -56,6 +57,25 @@ export async function getPlayerNote(playerId: string): Promise<PlayerNote | null
 export async function setPlayerNote(note: PlayerNote): Promise<void> {
   const key = STORAGE_KEYS.PLAYER_NOTE_PREFIX + note.playerId;
   await chrome.storage.local.set({ [key]: note });
+}
+
+/**
+ * Hand ids already counted into the stats.
+ *
+ * Persisted because the in-memory guard dies with the page: after a reload (or
+ * a second click on the manual pull) the same hands would be ingested again on
+ * top of stats that already contain them, inflating handsSeen and every ratio
+ * derived from it.
+ */
+export async function getSeenHandIds(): Promise<string[]> {
+  const result = await chrome.storage.local.get(STORAGE_KEYS.SEEN_HAND_IDS);
+  const ids: unknown = result[STORAGE_KEYS.SEEN_HAND_IDS];
+  return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : [];
+}
+export async function saveSeenHandIds(ids: string[]): Promise<void> {
+  await chrome.storage.local.set({
+    [STORAGE_KEYS.SEEN_HAND_IDS]: ids.slice(-SEEN_HAND_IDS_LIMIT),
+  });
 }
 
 // Session name map (displayName → playerId) — content-script accessible via local

@@ -112,10 +112,13 @@ export const MIN_HANDS_FOR_TAGS = 10;
 export const HAND_END_DEBOUNCE_MS = 600;
 export const LOG_MODAL_TIMEOUT_MS = 3000;
 
-// How many completed hands a manual log pull tries to load before it stops
-// scrolling the modal. A backfill target, not a cap: whatever else is already
-// loaded gets ingested too (known hand ids are skipped anyway).
+// Default hand count of a manual log pull (the side panel's Log dropdown).
 export const MANUAL_LOG_PULL_HANDS = 10;
+
+// Ingested hand ids kept on disk. Enough to cover any realistic backfill; the
+// oldest are dropped first, and a hand that falls out can at worst be counted
+// twice if it is pulled again much later.
+export const SEEN_HAND_IDS_LIMIT = 5000;
 
 // Storage keys
 export const STORAGE_KEYS = {
@@ -123,5 +126,6 @@ export const STORAGE_KEYS = {
   ALL_PLAYER_STATS: 'copilot_player_stats',
   HERO_STATS: 'copilot_hero_stats',
   SESSION_NAME_MAP: 'copilot_name_map',
+  SEEN_HAND_IDS: 'copilot_seen_hand_ids',
   PLAYER_NOTE_PREFIX: 'player_note_',
 } as const;

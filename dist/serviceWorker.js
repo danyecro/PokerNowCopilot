@@ -495,12 +495,7 @@ async function handleMessage(msg) {
         return;
       }
       try {
-        const res = await chrome.tabs.sendMessage(tabId, msg);
-        sendToSidePanel({
-          type: "LOG_PULL_RESULT",
-          found: res?.found ?? 0,
-          ingested: res?.ingested ?? 0
-        });
+        await chrome.tabs.sendMessage(tabId, msg);
       } catch (e) {
         sendToSidePanel({
           type: "AI_STREAM_ERROR",
@@ -509,6 +504,9 @@ async function handleMessage(msg) {
       }
       break;
     }
+    case "LOG_PULL_RESULT":
+      sendToSidePanel(msg);
+      break;
   }
 }
 async function runAnalysis(gameState, stats) {

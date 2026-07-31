@@ -50,14 +50,22 @@ async function init(): Promise<void> {
     if (msg.type === 'LOG_PULL_REQUEST') {
       // Manual backfill — bypasses the throttle on purpose: it is a click, not
       // a hand-end trigger, and the point of it is to run right now.
+      //
+      // The result is pushed as its own message rather than returned through
+      // sendResponse: a 100-hand pull outlives the service worker's idle
+      // timeout, and a reply into a dead channel is a pull that worked but
+      // reported nothing. Acknowledge now, report when done.
       const { minHands } = msg;
-      runLogPull({ minHands })
+      sendResponse({ started: true });
+      void runLogPull({ minHands })
         .catch(e => {
           console.warn('[Copilot] Manual log pull failed:', e);
           return { found: 0, ingested: 0 };
         })
-        .then(sendResponse);
-      return true;
+        .then(({ found, ingested }) => {
+          chrome.runtime.sendMessage({ type: 'LOG_PULL_RESULT', found, ingested } as ExtMessage);
+        });
+      return false;
     }
     if (msg.type === 'AI_RECOMMENDATION') {
       // Only ring a button while the action bar is actually up — a late answer
@@ -124,7 +132,14 @@ async function readLogLines(minHands?: number): Promise<string[]> {
       if (result.failed > 0) {
         console.warn(`[Copilot] ${result.failed} of ${count} hand logs failed to load`);
       }
-      if (result.lines.length > 0) return result.lines;
+      if (result.lines.length > 0) {
+        const nums = result.handNumbers;
+        console.log(
+          `[Copilot] Log API: ${result.lines.length} lines from ${nums.length} hands` +
+          (nums.length ? ` (#${nums[nums.length - 1]}–#${nums[0]})` : ''),
+        );
+        return result.lines;
+      }
       console.warn('[Copilot] Log API returned nothing — falling back to the modal');
     } catch (e) {
       console.warn('[Copilot] Log API failed — falling back to the modal:', e);
@@ -167,7 +182,7 @@ async function runLogPull(opts: { minHands?: number } = {}): Promise<LogPullResu
   // known hand ids are skipped inside ingestHand.
   const blocks = extractCompletedHandBlocksFromLines(lines);
   if (blocks.length === 0) {
-    console.warn('[Copilot] No completed hand in log');
+    console.warn(`[Copilot] No completed hand among ${lines.length} log lines`);
     return { found: 0, ingested: 0 };
   }
 
@@ -196,9 +211,11 @@ async function runLogPull(opts: { minHands?: number } = {}): Promise<LogPullResu
       console.log(`[Copilot] Hand #${hand.handNum} → ${seen.join(' ')}`);
     }
   }
-  // nothing new — every hand was already counted
-  if (ingested === 0) return { found: blocks.length, ingested };
+  console.log(`[Copilot] Log pull: ${blocks.length} completed hands, ${ingested} new`);
 
+  // Repaint even when nothing was new. A manual pull that silently changes
+  // nothing is indistinguishable from a broken button, and the stats may still
+  // have moved through the name→id migration that runs on every ingest.
   updateOverlays(opponentStats, (pid) => chrome.runtime.sendMessage({ type: 'EXPLOIT_REQUEST', playerId: pid, stats: opponentStats }));
 
   chrome.runtime.sendMessage({ type: 'STATS_UPDATE', stats: opponentStats } as ExtMessage);
