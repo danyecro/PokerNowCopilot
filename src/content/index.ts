@@ -4,6 +4,7 @@ import { clearActionHighlight, highlightAction, findActionButton } from './actio
 import { cancelAfkAction, scheduleAfkAction } from './afkFolder';
 import { setSettings } from '../shared/storage';
 import { pullLogEntries, pullLogPages } from './logPuller';
+import { fetchRecentHands, getGameId } from './logApi';
 import { snapshotGameState } from './gameStateReader';
 import {
   extractCompletedHandBlocksFromLines, logEntriesToLines, parseHand,
@@ -50,7 +51,12 @@ async function init(): Promise<void> {
       // Manual backfill — bypasses the throttle on purpose: it is a click, not
       // a hand-end trigger, and the point of it is to run right now.
       const { minHands } = msg;
-      void runLogPull({ minHands }).then(sendResponse);
+      runLogPull({ minHands })
+        .catch(e => {
+          console.warn('[Copilot] Manual log pull failed:', e);
+          return { found: 0, ingested: 0 };
+        })
+        .then(sendResponse);
       return true;
     }
     if (msg.type === 'AI_RECOMMENDATION') {
@@ -98,12 +104,53 @@ async function onHandEnd(): Promise<void> {
 }
 
 /**
+ * Log lines for the last `minHands` hands (default: the current one and its
+ * predecessor), via the API — falling back to the log modal if that fails.
+ */
+async function readLogLines(minHands?: number): Promise<string[]> {
+  const gameId = getGameId();
+  const count = minHands ?? 1;
+
+  if (gameId) {
+    try {
+      const result = await fetchRecentHands(gameId, count, (done, total) => {
+        // Only worth reporting on a manual pull of many hands.
+        if (minHands && total > 5) {
+          chrome.runtime.sendMessage({
+            type: 'LOG_PULL_PROGRESS', done, total,
+          } as ExtMessage);
+        }
+      });
+      if (result.failed > 0) {
+        console.warn(`[Copilot] ${result.failed} of ${count} hand logs failed to load`);
+      }
+      if (result.lines.length > 0) return result.lines;
+      console.warn('[Copilot] Log API returned nothing — falling back to the modal');
+    } catch (e) {
+      console.warn('[Copilot] Log API failed — falling back to the modal:', e);
+    }
+  }
+
+  // Fallback: the modal shows one hand per page and only pages back through its
+  // own buttons, so a backfill has to walk the pagination.
+  return minHands
+    ? await pullLogPages({
+        enough: ls => extractCompletedHandBlocksFromLines(ls).length >= minHands,
+        maxPages: minHands * 3,
+        waitForFree: true,
+      })
+    : logEntriesToLines(await pullLogEntries());
+}
+
+/**
  * Reads the table log and ingests every completed hand in it.
  *
- * `minHands` turns it into a backfill: the log is paged back until that many
- * completed hands have been collected (see logPuller). Without it only the page
- * the modal opens on is read — the normal per-hand path, which is also the one
- * that comes up empty when the next hand was dealt before the pull ran.
+ * `minHands` makes it a backfill of that many hands; without it only the hand
+ * in play and the one before it are read — the normal per-hand path.
+ *
+ * Both go through PokerNow's own log endpoint (see logApi). Scraping the modal
+ * is kept as a fallback: it survives an API shape change, at the cost of one
+ * hand per page and player ids the DOM does not expose.
  */
 async function runLogPull(opts: { minHands?: number } = {}): Promise<LogPullResult> {
   lastPullAt = Date.now();
@@ -112,16 +159,7 @@ async function runLogPull(opts: { minHands?: number } = {}): Promise<LogPullResu
   updateNameMap(nameToIdMap);
 
   const minHands = opts.minHands;
-  const lines = minHands
-    ? await pullLogPages({
-        enough: ls => extractCompletedHandBlocksFromLines(ls).length >= minHands,
-        // Paging costs one log request per hand, so cap the walk well above the
-        // target but far below "the whole session".
-        maxPages: minHands * 3,
-        waitForFree: true,
-      })
-    : logEntriesToLines(await pullLogEntries());
-
+  const lines = await readLogLines(minHands);
   if (lines.length === 0) return { found: 0, ingested: 0 };
 
   // Ingest every completed hand collected, not just the newest one: a hand that

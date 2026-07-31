@@ -79,7 +79,8 @@ const DEFAULT_SETTINGS = {
   showSidePanel: true,
   // Never auto-acts unless you switch it on in the side panel, and it resets
   // to 'off' the moment you touch the table again.
-  afkMode: "off"
+  afkMode: "off",
+  logPullHands: MANUAL_LOG_PULL_HANDS
 };
 function migrateModel(model) {
   if (isKnownModel(model)) return model;

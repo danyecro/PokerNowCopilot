@@ -48,6 +48,9 @@ function onMessage(msg: ExtMessage): void {
         requestAnalysis();
       }
       break;
+    case 'LOG_PULL_PROGRESS':
+      setStatus(`Reading the table log — ${msg.done}/${msg.total} hands…`, 'streaming');
+      break;
     case 'LOG_PULL_RESULT': {
       if (logPullTimeout) { clearTimeout(logPullTimeout); logPullTimeout = null; }
       setLogPulling(false);
@@ -109,30 +112,44 @@ function unlockPullButtons(): void {
 // Opens the table log, scrolls back until ~10 completed hands are loaded and
 // counts every one of them that is new into the stats.
 const logBtn = document.getElementById('btn-pull-log') as HTMLButtonElement | null;
+const logCount = document.getElementById('log-count') as HTMLSelectElement | null;
 let logPullTimeout: ReturnType<typeof setTimeout> | null = null;
 
+function selectedLogHands(): number {
+  const n = Number(logCount?.value);
+  return Number.isFinite(n) && n > 0 ? n : MANUAL_LOG_PULL_HANDS;
+}
+
 function setLogPulling(on: boolean): void {
+  if (logCount) logCount.disabled = on;
   if (!logBtn) return;
   logBtn.disabled = on;
   logBtn.classList.toggle('pulling', on);
-  logBtn.textContent = on ? '📜 …' : `📜 Log ${MANUAL_LOG_PULL_HANDS}`;
+  logBtn.textContent = on ? '📜 …' : '📜 Log';
+}
+
+/** Deadline scaled to the work: one request per hand, four at a time. */
+function logPullTimeoutMs(hands: number): number {
+  return 10000 + hands * 700;
 }
 
 logBtn?.addEventListener('click', () => {
+  const hands = selectedLogHands();
   setLogPulling(true);
-  setStatus(`Reading the table log (${MANUAL_LOG_PULL_HANDS} hands)…`, 'streaming');
-  chrome.runtime.sendMessage({
-    type: 'LOG_PULL_REQUEST',
-    minHands: MANUAL_LOG_PULL_HANDS,
-  } as ExtMessage);
+  setStatus(`Reading the table log (${hands} hands)…`, 'streaming');
+  chrome.runtime.sendMessage({ type: 'LOG_PULL_REQUEST', minHands: hands } as ExtMessage);
 
-  // Scrolling the log back can take a few seconds — long fallback so the button
-  // never stays stuck if the tab goes away mid-pull.
   if (logPullTimeout) clearTimeout(logPullTimeout);
   logPullTimeout = setTimeout(() => {
     setLogPulling(false);
     setStatus('Log pull timed out — is the PokerNow tab still open?', 'error');
-  }, 25000);
+  }, logPullTimeoutMs(hands));
+});
+
+// Remember the choice across panel reopens.
+logCount?.addEventListener('change', async () => {
+  const settings = await getSettings();
+  await setSettings({ ...settings, logPullHands: selectedLogHands() });
 });
 
 // ── Render: Hand Bar ─────────────────────────────────────────────────────────
@@ -414,7 +431,11 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 
 getSettings()
-  .then(s => { paintAutoBtn(s.autoAnalyze); paintAfk(s.afkMode); })
+  .then(s => {
+    paintAutoBtn(s.autoAnalyze);
+    paintAfk(s.afkMode);
+    if (logCount && s.logPullHands) logCount.value = String(s.logPullHands);
+  })
   .catch(console.error);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

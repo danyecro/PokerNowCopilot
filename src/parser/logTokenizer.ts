@@ -15,7 +15,10 @@ export const LOG_PATTERNS = {
   CALLS: /^(.+?) calls (\d+)$/,
   FOLDS: /^(.+?) folds$/,
   CHECKS: /^(.+?) checks$/,
-  ALL_IN: /^(.+?) (?:calls|raises to|bets) (\d+) and is all in$/,
+  // PokerNow is not consistent here: "and is all in" in some lines, "and go all
+  // in" in others. Missing a variant is expensive — the line then matches no
+  // pattern at all and the whole raise/call disappears from the hand.
+  ALL_IN: /^(.+?) (?:calls|raises to|bets) (\d+) and (?:is|go(?:es)?) all in$/,
   FLOP: /^Flop:\s+\[(.+?)\]$/,
   TURN: /^Turn: .+? \[(.+?)\]$/,
   RIVER: /^River: .+? \[(.+?)\]$/,

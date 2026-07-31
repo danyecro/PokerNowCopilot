@@ -136,6 +136,7 @@
   const MIN_HANDS_FOR_TAGS = 10;
   const HAND_END_DEBOUNCE_MS = 600;
   const LOG_MODAL_TIMEOUT_MS = 3e3;
+  const MANUAL_LOG_PULL_HANDS = 10;
   const STORAGE_KEYS = {
     SETTINGS: "copilot_settings",
     ALL_PLAYER_STATS: "copilot_player_stats",
@@ -598,7 +599,8 @@
     showSidePanel: true,
     // Never auto-acts unless you switch it on in the side panel, and it resets
     // to 'off' the moment you touch the table again.
-    afkMode: "off"
+    afkMode: "off",
+    logPullHands: MANUAL_LOG_PULL_HANDS
   };
   function migrateModel(model) {
     if (isKnownModel(model)) return model;
@@ -641,7 +643,10 @@
     CALLS: /^(.+?) calls (\d+)$/,
     FOLDS: /^(.+?) folds$/,
     CHECKS: /^(.+?) checks$/,
-    ALL_IN: /^(.+?) (?:calls|raises to|bets) (\d+) and is all in$/,
+    // PokerNow is not consistent here: "and is all in" in some lines, "and go all
+    // in" in others. Missing a variant is expensive — the line then matches no
+    // pattern at all and the whole raise/call disappears from the hand.
+    ALL_IN: /^(.+?) (?:calls|raises to|bets) (\d+) and (?:is|go(?:es)?) all in$/,
     FLOP: /^Flop:\s+\[(.+?)\]$/,
     TURN: /^Turn: .+? \[(.+?)\]$/,
     RIVER: /^River: .+? \[(.+?)\]$/,
@@ -1056,6 +1061,70 @@
   }
   function removeHideStyle() {
     document.getElementById(HIDE_STYLE_ID)?.remove();
+  }
+  function getGameId() {
+    return location.pathname.match(/\/games\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
+  }
+  const HAND_START_NUM = /^-- starting hand #(\d+)/;
+  async function fetchHandLog(gameId, handNumber) {
+    const query = handNumber == null ? "" : `?hand_number=${handNumber}`;
+    const res = await fetch(`/api/games/${gameId}/log_v3${query}`, {
+      credentials: "include",
+      headers: { accept: "application/json, text/plain, */*" }
+    });
+    if (!res.ok) throw new Error(`log_v3 ${handNumber ?? "current"} → HTTP ${res.status}`);
+    const body = await res.json();
+    const entries = toEntries(body);
+    return entries.slice().sort((a, b) => Number(a.createdAt) - Number(b.createdAt)).map((e) => e.msg).filter((msg) => typeof msg === "string" && msg.length > 0);
+  }
+  function toEntries(body) {
+    if (Array.isArray(body)) return body;
+    if (body && typeof body === "object") {
+      for (const key of ["entries", "log", "msgs", "data"]) {
+        const val = body[key];
+        if (Array.isArray(val)) return val;
+      }
+    }
+    return [];
+  }
+  async function fetchRecentHands(gameId, count, onProgress) {
+    const currentLines = await fetchHandLog(gameId);
+    const currentNum = handNumberOf(currentLines);
+    if (currentNum == null) {
+      return { lines: currentLines, handNumbers: [], failed: 0 };
+    }
+    const targets = [];
+    for (let n = currentNum - 1; n >= 1 && targets.length < count; n--) targets.push(n);
+    const byHand = /* @__PURE__ */ new Map([[currentNum, currentLines]]);
+    let failed = 0;
+    let done = 0;
+    const total = targets.length;
+    onProgress?.(0, total);
+    const CONCURRENCY = 4;
+    const queue = targets.slice();
+    await Promise.all(
+      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+        for (let n = queue.shift(); n !== void 0; n = queue.shift()) {
+          try {
+            byHand.set(n, await fetchHandLog(gameId, n));
+          } catch (e) {
+            failed++;
+            console.warn(`[Copilot] Log fetch failed for hand #${n}:`, e);
+          }
+          onProgress?.(++done, total);
+        }
+      })
+    );
+    const handNumbers = [...byHand.keys()].sort((a, b) => b - a);
+    const lines = [...byHand.keys()].sort((a, b) => a - b).flatMap((n) => byHand.get(n) ?? []);
+    return { lines, handNumbers, failed };
+  }
+  function handNumberOf(lines) {
+    for (const line of lines) {
+      const m = line.match(HAND_START_NUM);
+      if (m) return Number(m[1]);
+    }
+    return null;
   }
   function ratio(numerator, denominator) {
     if (denominator === 0) return 0;
@@ -1578,7 +1647,10 @@
       }
       if (msg.type === "LOG_PULL_REQUEST") {
         const { minHands } = msg;
-        void runLogPull({ minHands }).then(sendResponse);
+        runLogPull({ minHands }).catch((e) => {
+          console.warn("[Copilot] Manual log pull failed:", e);
+          return { found: 0, ingested: 0 };
+        }).then(sendResponse);
         return true;
       }
       if (msg.type === "AI_RECOMMENDATION") {
@@ -1608,18 +1680,41 @@
     }
     await runLogPull();
   }
+  async function readLogLines(minHands) {
+    const gameId = getGameId();
+    const count = minHands ?? 1;
+    if (gameId) {
+      try {
+        const result = await fetchRecentHands(gameId, count, (done, total) => {
+          if (minHands && total > 5) {
+            chrome.runtime.sendMessage({
+              type: "LOG_PULL_PROGRESS",
+              done,
+              total
+            });
+          }
+        });
+        if (result.failed > 0) {
+          console.warn(`[Copilot] ${result.failed} of ${count} hand logs failed to load`);
+        }
+        if (result.lines.length > 0) return result.lines;
+        console.warn("[Copilot] Log API returned nothing — falling back to the modal");
+      } catch (e) {
+        console.warn("[Copilot] Log API failed — falling back to the modal:", e);
+      }
+    }
+    return minHands ? await pullLogPages({
+      enough: (ls) => extractCompletedHandBlocksFromLines(ls).length >= minHands,
+      maxPages: minHands * 3,
+      waitForFree: true
+    }) : logEntriesToLines(await pullLogEntries());
+  }
   async function runLogPull(opts = {}) {
     lastPullAt = Date.now();
     const { gameState, nameToIdMap: nameToIdMap2 } = snapshotGameState();
     updateNameMap(nameToIdMap2);
     const minHands = opts.minHands;
-    const lines = minHands ? await pullLogPages({
-      enough: (ls) => extractCompletedHandBlocksFromLines(ls).length >= minHands,
-      // Paging costs one log request per hand, so cap the walk well above the
-      // target but far below "the whole session".
-      maxPages: minHands * 3,
-      waitForFree: true
-    }) : logEntriesToLines(await pullLogEntries());
+    const lines = await readLogLines(minHands);
     if (lines.length === 0) return { found: 0, ingested: 0 };
     const blocks = extractCompletedHandBlocksFromLines(lines);
     if (blocks.length === 0) {

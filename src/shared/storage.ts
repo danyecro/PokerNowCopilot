@@ -1,5 +1,7 @@
 import type { PlayerNote, PlayerStats, Settings } from './types';
-import { DEFAULT_MODEL, RETIRED_MODELS, STORAGE_KEYS, isKnownModel } from './constants';
+import {
+  DEFAULT_MODEL, MANUAL_LOG_PULL_HANDS, RETIRED_MODELS, STORAGE_KEYS, isKnownModel,
+} from './constants';
 
 const DEFAULT_SETTINGS: Settings = {
   openRouterApiKey: '',
@@ -10,6 +12,7 @@ const DEFAULT_SETTINGS: Settings = {
   // Never auto-acts unless you switch it on in the side panel, and it resets
   // to 'off' the moment you touch the table again.
   afkMode: 'off',
+  logPullHands: MANUAL_LOG_PULL_HANDS,
 };
 
 /** Migrates a stored model id that has since been retired or removed. */

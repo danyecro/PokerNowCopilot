@@ -17,6 +17,7 @@ export type MessageType =
   | 'PULL_REQUEST'
   | 'PULL_RESPONSE'
   | 'LOG_PULL_REQUEST'
+  | 'LOG_PULL_PROGRESS'
   | 'LOG_PULL_RESULT'
   | 'EXPLOIT_REQUEST';
 
@@ -67,6 +68,12 @@ export interface LogPullRequestMessage {
   /** Hands to load before the modal stops being scrolled. Target, not a cap. */
   minHands: number;
 }
+/** Emitted while a many-hand pull walks the log endpoint. */
+export interface LogPullProgressMessage {
+  type: 'LOG_PULL_PROGRESS';
+  done: number;
+  total: number;
+}
 export interface LogPullResultMessage {
   type: 'LOG_PULL_RESULT';
   /** Completed hands found in the log. */
@@ -105,6 +112,7 @@ export type ExtMessage =
   | PullRequestMessage
   | PullResponseMessage
   | LogPullRequestMessage
+  | LogPullProgressMessage
   | LogPullResultMessage
   | ExploitRequestMessage
   | AiRecommendationMessage;

@@ -34,6 +34,7 @@ async function handleMessage(msg: ExtMessage): Promise<void> {
     case 'STATS_UPDATE':
     case 'GAME_STATE_UPDATE':
     case 'HERO_STATS_UPDATE':
+    case 'LOG_PULL_PROGRESS':
       sendToSidePanel(msg);
       break;
 

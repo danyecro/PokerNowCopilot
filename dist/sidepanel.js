@@ -1,5 +1,5 @@
 import { c as cardToString, b as boardToString } from "./chunks/cardUtils.js";
-import { d as MIN_HANDS_FOR_STATS, T as THRESHOLDS, M as MANUAL_LOG_PULL_HANDS, g as getSettings, s as setSettings, S as STORAGE_KEYS } from "./chunks/storage.js";
+import { d as MIN_HANDS_FOR_STATS, T as THRESHOLDS, g as getSettings, s as setSettings, S as STORAGE_KEYS, M as MANUAL_LOG_PULL_HANDS } from "./chunks/storage.js";
 function getBadgeColor(stats) {
   if (stats.handsSeen < MIN_HANDS_FOR_STATS) return "gray";
   const isAggressive = stats.vpip > THRESHOLDS.VPIP_LOOSE / 100 && stats.af > THRESHOLDS.AF_AGGRESSIVE;
@@ -267,6 +267,9 @@ function onMessage(msg) {
         requestAnalysis();
       }
       break;
+    case "LOG_PULL_PROGRESS":
+      setStatus(`Reading the table log — ${msg.done}/${msg.total} hands…`, "streaming");
+      break;
     case "LOG_PULL_RESULT": {
       if (logPullTimeout) {
         clearTimeout(logPullTimeout);
@@ -326,25 +329,36 @@ function unlockPullButtons() {
   });
 }
 const logBtn = document.getElementById("btn-pull-log");
+const logCount = document.getElementById("log-count");
 let logPullTimeout = null;
+function selectedLogHands() {
+  const n = Number(logCount?.value);
+  return Number.isFinite(n) && n > 0 ? n : MANUAL_LOG_PULL_HANDS;
+}
 function setLogPulling(on) {
+  if (logCount) logCount.disabled = on;
   if (!logBtn) return;
   logBtn.disabled = on;
   logBtn.classList.toggle("pulling", on);
-  logBtn.textContent = on ? "📜 …" : `📜 Log ${MANUAL_LOG_PULL_HANDS}`;
+  logBtn.textContent = on ? "📜 …" : "📜 Log";
+}
+function logPullTimeoutMs(hands) {
+  return 1e4 + hands * 700;
 }
 logBtn?.addEventListener("click", () => {
+  const hands = selectedLogHands();
   setLogPulling(true);
-  setStatus(`Reading the table log (${MANUAL_LOG_PULL_HANDS} hands)…`, "streaming");
-  chrome.runtime.sendMessage({
-    type: "LOG_PULL_REQUEST",
-    minHands: MANUAL_LOG_PULL_HANDS
-  });
+  setStatus(`Reading the table log (${hands} hands)…`, "streaming");
+  chrome.runtime.sendMessage({ type: "LOG_PULL_REQUEST", minHands: hands });
   if (logPullTimeout) clearTimeout(logPullTimeout);
   logPullTimeout = setTimeout(() => {
     setLogPulling(false);
     setStatus("Log pull timed out — is the PokerNow tab still open?", "error");
-  }, 25e3);
+  }, logPullTimeoutMs(hands));
+});
+logCount?.addEventListener("change", async () => {
+  const settings = await getSettings();
+  await setSettings({ ...settings, logPullHands: selectedLogHands() });
 });
 function renderHandBar() {
   const gs = currentGameState;
@@ -564,6 +578,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 getSettings().then((s) => {
   paintAutoBtn(s.autoAnalyze);
   paintAfk(s.afkMode);
+  if (logCount && s.logPullHands) logCount.value = String(s.logPullHands);
 }).catch(console.error);
 function setText(id, text) {
   const el = document.getElementById(id);

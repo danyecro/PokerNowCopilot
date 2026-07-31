@@ -19,8 +19,17 @@
     <button class="pull-btn" data-pull="pot"   title="Read pot + blinds">💰 Pot</button>
     <button class="pull-btn" data-pull="bets"  title="Read player bets + stacks">📊 Bets</button>
     <button class="pull-btn" data-pull="all"   title="Pull everything">🔄 All</button>
-    <button class="pull-btn" id="btn-pull-log"
-            title="Read the last hands out of the table log and count them into the stats">📜 Log 10</button>
+    <span class="pull-log-group">
+      <button class="pull-btn" id="btn-pull-log"
+              title="Read the last hands out of the table log and count them into the stats">📜 Log</button>
+      <select id="log-count" title="How many hands to read">
+        <option value="5">5</option>
+        <option value="10" selected>10</option>
+        <option value="20">20</option>
+        <option value="50">50</option>
+        <option value="100">100</option>
+      </select>
+    </span>
   </section>
 
   <!-- Current hand snapshot -->

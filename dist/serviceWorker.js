@@ -451,6 +451,7 @@ async function handleMessage(msg) {
     case "STATS_UPDATE":
     case "GAME_STATE_UPDATE":
     case "HERO_STATS_UPDATE":
+    case "LOG_PULL_PROGRESS":
       sendToSidePanel(msg);
       break;
     case "AI_ANALYZE_REQUEST":

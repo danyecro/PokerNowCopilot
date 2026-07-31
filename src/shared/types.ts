@@ -140,4 +140,6 @@ export interface Settings {
   showOverlays: boolean;
   showSidePanel: boolean;
   afkMode: AfkMode;
+  /** Hands a manual log pull reads — the side panel's Log dropdown. */
+  logPullHands: number;
 }
