@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PokerNow Copilot</title>
+  <link rel="stylesheet" href="sidepanel.css" />
+</head>
+<body>
+  <header>
+    <h1>Copilot</h1>
+    <button id="btn-settings" title="Settings">⚙</button>
+  </header>
+
+  <!-- Manual pull buttons -->
+  <section id="pull-section">
+    <button class="pull-btn" data-pull="hand"  title="Read hero hole cards">🃏 Hand</button>
+    <button class="pull-btn" data-pull="board" title="Read community board">🎴 Board</button>
+    <button class="pull-btn" data-pull="pot"   title="Read pot + blinds">💰 Pot</button>
+    <button class="pull-btn" data-pull="bets"  title="Read player bets + stacks">📊 Bets</button>
+    <button class="pull-btn" data-pull="all"   title="Pull everything">🔄 All</button>
+    <button class="pull-btn" id="btn-pull-log"
+            title="Read the last hands out of the table log and count them into the stats">📜 Log 10</button>
+  </section>
+
+  <!-- Current hand snapshot -->
+  <section id="hand-bar">
+    <div class="hand-cell"><span class="label">HERO</span><span id="val-hero-cards">—</span></div>
+    <div class="hand-cell"><span class="label">BOARD</span><span id="val-board">—</span></div>
+    <div class="hand-cell"><span class="label">POT</span><span id="val-pot">—</span></div>
+    <div class="hand-cell"><span class="label">STREET</span><span id="val-street">—</span></div>
+    <div class="hand-cell equity-cell">
+      <span class="label">EQUITY</span>
+      <span id="val-equity" class="equity-value">—</span>
+    </div>
+  </section>
+
+  <!-- Edge Indicator -->
+  <section id="edge-section">
+    <div class="section-header">EDGE INDICATOR</div>
+    <div id="edge-list"><span class="placeholder">Pull the table state to see edge hints.</span></div>
+  </section>
+
+  <!-- Active opponents -->
+  <section id="opponents-section">
+    <div class="section-header">
+      OPPONENTS
+      <span id="hands-seen-label"></span>
+    </div>
+    <div id="opponent-list"><span class="placeholder" style="padding:6px 10px">No data yet.</span></div>
+  </section>
+
+  <!-- My Stats -->
+  <section id="hero-section">
+    <div class="section-header">MY STATS</div>
+    <div id="hero-stats-content"><span class="placeholder" style="padding:6px 10px">Play hands to track your own stats.</span></div>
+  </section>
+
+  <!-- AI Analysis -->
+  <section id="ai-section">
+    <div class="section-header">
+      AI ANALYSIS
+      <div class="ai-btns">
+        <button id="btn-auto" class="toggle-btn" aria-pressed="false"
+                title="Analyze automatically on every street change">
+          <span class="toggle-dot"></span>AUTO
+        </button>
+        <button id="btn-analyze">Analyze moves</button>
+      </div>
+    </div>
+    <div id="afk-bar">
+      <label for="afk-mode">AFK auto-action</label>
+      <select id="afk-mode">
+        <option value="off">Off</option>
+        <option value="check-fold">Check, else fold</option>
+        <option value="fold">Always fold</option>
+      </select>
+      <span id="afk-state"></span>
+    </div>
+    <div id="ai-output"></div>
+    <div id="ai-status"></div>
+  </section>
+
+  <script src="sidepanel.js" type="module"></script>
+</body>
+</html>

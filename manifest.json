@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "PokerNow Copilot",
+  "version": "0.1.0",
+  "description": "Real-time poker analysis overlay for pokernow.club",
+
+  "permissions": [
+    "storage",
+    "sidePanel",
+    "activeTab",
+    "tabs"
+  ],
+
+  "host_permissions": [
+    "https://*.pokernow.com/*",
+    "https://openrouter.ai/*",
+    "https://api.naga.ac/*",
+    "https://api.openai.com/*"
+  ],
+
+  "background": {
+    "service_worker": "serviceWorker.js",
+    "type": "module"
+  },
+
+  "content_scripts": [
+    {
+      "matches": ["https://*.pokernow.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+
+  "side_panel": {
+    "default_path": "sidepanel.html"
+  },
+
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+
+  "action": {
+    "default_title": "PokerNow Copilot",
+    "default_icon": {
+      "16": "icons/image.png",
+      "48": "icons/image.png",
+      "128": "icons/image.png"
+    }
+  },
+
+  "icons": {
+    "16": "icons/image.png",
+    "48": "icons/image.png",
+    "128": "icons/image.png"
+  }
+}

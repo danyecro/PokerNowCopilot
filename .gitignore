@@ -1,0 +1,14 @@
+# Dependencies
+node_modules/
+
+# Local env (the API key is entered in the options page, never at build time)
+.env
+.env.local
+
+# Tooling
+.codegraph/
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
