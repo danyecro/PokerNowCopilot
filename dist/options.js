@@ -41,8 +41,13 @@ function ensureOption(id) {
 }
 async function loadGeminiModels() {
   const key = sanitizeApiKey(apiKeyInput.value);
-  if (!key.startsWith("AIza")) {
-    setModelsStatus("Enter a Gemini key (AIza…) first.", "error");
+  if (!key) {
+    setModelsStatus("Enter your Gemini key first.", "error");
+    return;
+  }
+  const owner = providerFromKey(key);
+  if (owner && owner !== "gemini") {
+    setModelsStatus(`That looks like a ${PROVIDER_LABEL[owner]} key, not a Google one.`, "error");
     return;
   }
   refreshBtn.disabled = true;

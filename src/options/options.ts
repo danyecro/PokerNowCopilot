@@ -68,8 +68,16 @@ interface GeminiModel {
  */
 async function loadGeminiModels(): Promise<void> {
   const key = sanitizeApiKey(apiKeyInput.value);
-  if (!key.startsWith('AIza')) {
-    setModelsStatus('Enter a Gemini key (AIza…) first.', 'error');
+  if (!key) {
+    setModelsStatus('Enter your Gemini key first.', 'error');
+    return;
+  }
+  // Only refuse a key that demonstrably belongs somewhere else. Google has
+  // shipped more than one key format (AIza…, AQ.…) and will ship more, so a
+  // prefix whitelist here would reject valid keys — let the API decide.
+  const owner = providerFromKey(key);
+  if (owner && owner !== 'gemini') {
+    setModelsStatus(`That looks like a ${PROVIDER_LABEL[owner]} key, not a Google one.`, 'error');
     return;
   }
 

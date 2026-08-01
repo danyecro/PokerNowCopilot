@@ -36,12 +36,21 @@ export function apiKeyProblem(key: string): string | null {
  * The provider a key can authenticate against, from its prefix.
  *
  * Authoritative where it answers: a Naga key cannot talk to OpenRouter no
- * matter which model is selected. Google's AI Studio keys start with "AIza".
+ * matter which model is selected.
+ *
+ * Google issues two shapes. "AIza…" is the classic AI Studio key; keys created
+ * in the Cloud Console come as "AQ.…". Both authenticate the same way, through
+ * the x-goog-api-key header — only the prefix differs.
  */
 export function providerFromKey(apiKey: string): Provider | null {
   if (apiKey.startsWith('sk-or-')) return 'openrouter';
   if (apiKey.startsWith('ng-'))    return 'naga';
-  if (apiKey.startsWith('AIza'))   return 'gemini';
+  if (isGoogleKey(apiKey))         return 'gemini';
   if (apiKey.startsWith('sk-'))    return 'openai';
   return null;
+}
+
+/** Both Google key formats: AI Studio ("AIza…") and Cloud Console ("AQ.…"). */
+export function isGoogleKey(apiKey: string): boolean {
+  return apiKey.startsWith('AIza') || apiKey.startsWith('AQ.');
 }

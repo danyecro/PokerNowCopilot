@@ -19,9 +19,12 @@ function apiKeyProblem(key) {
 function providerFromKey(apiKey) {
   if (apiKey.startsWith("sk-or-")) return "openrouter";
   if (apiKey.startsWith("ng-")) return "naga";
-  if (apiKey.startsWith("AIza")) return "gemini";
+  if (isGoogleKey(apiKey)) return "gemini";
   if (apiKey.startsWith("sk-")) return "openai";
   return null;
+}
+function isGoogleKey(apiKey) {
+  return apiKey.startsWith("AIza") || apiKey.startsWith("AQ.");
 }
 export {
   apiKeyProblem as a,

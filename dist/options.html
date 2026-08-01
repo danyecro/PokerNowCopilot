@@ -11,12 +11,13 @@
 
     <div class="field">
       <label for="api-key">API Key</label>
-      <input type="password" id="api-key" placeholder="AIza..." autocomplete="off" />
+      <input type="password" id="api-key" placeholder="AIza… or AQ.…" autocomplete="off" />
       <small>
         Gemini key from <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>
-        (free tier available). OpenRouter (<code>sk-or-</code>), Naga (<code>ng-</code>) and OpenAI
-        (<code>sk-</code>) keys still work — the prefix picks the provider.
-        Stored locally, sent only to that provider.
+        or the Cloud Console (<code>AIza…</code> and <code>AQ.…</code> both work). A Cloud key must have
+        the <em>Generative Language API</em> enabled, and no HTTP-referrer restriction — an extension
+        sends none. OpenRouter (<code>sk-or-</code>), Naga (<code>ng-</code>) and OpenAI (<code>sk-</code>)
+        keys still work too. Stored locally, sent only to that provider.
       </small>
       <small id="key-provider" class="provider-hint"></small>
     </div>
