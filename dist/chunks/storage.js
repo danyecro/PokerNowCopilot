@@ -1,5 +1,12 @@
-const DEFAULT_MODEL = "inclusionai/ling-3.0-flash:free";
+const DEFAULT_MODEL = "gemini-2.5-flash";
 const AVAILABLE_MODELS = [
+  // ── Google Gemini API (key: AIza...) — ai.google.dev/gemini-api ───────────
+  // The options page can refresh this list from the live /v1beta/models
+  // endpoint, which is authoritative; these are the stable ids to start from.
+  { id: "gemini-2.5-flash", label: "⭐ Gemini 2.5 Flash (fast, free tier)", provider: "gemini" },
+  { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (strongest)", provider: "gemini" },
+  { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (cheapest)", provider: "gemini" },
+  { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
   // ── OpenRouter FREE (key: sk-or-...) — catalog checked 2026-07-27 ─────────
   // Excluded from the live free list on purpose:
   //   google/gemma-4-31b-it:free            90% of requests rate-limited (11k ok / 103k limited per day)
@@ -55,6 +62,15 @@ function hasReasoningOnByDefault(id) {
 const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1/chat/completions";
 const OPENAI_BASE_URL = "https://api.openai.com/v1/chat/completions";
 const NAGA_BASE_URL = "https://api.naga.ac/v1/chat/completions";
+const GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
+function geminiStreamUrl(modelId) {
+  return `${GEMINI_BASE_URL}/models/${modelId}:streamGenerateContent?alt=sse`;
+}
+const GEMINI_MODELS_URL = `${GEMINI_BASE_URL}/models`;
+function canDisableThinking(modelId) {
+  if (/^gemini-(1\.|2\.0)/.test(modelId)) return false;
+  return modelId.includes("flash");
+}
 const MAX_ATTEMPTS = 4;
 const RETRYABLE_STATUSES = [408, 429, 500, 502, 503, 504];
 const BACKOFF_BASE_MS = 1e3;
@@ -72,7 +88,7 @@ const STORAGE_KEYS = {
   SETTINGS: "copilot_settings"
 };
 const DEFAULT_SETTINGS = {
-  openRouterApiKey: "",
+  apiKey: "",
   model: DEFAULT_MODEL,
   autoAnalyze: false,
   showOverlays: true,
@@ -83,13 +99,21 @@ const DEFAULT_SETTINGS = {
   logPullHands: MANUAL_LOG_PULL_HANDS
 };
 function migrateModel(model) {
+  if (!model) return DEFAULT_MODEL;
   if (isKnownModel(model)) return model;
-  return RETIRED_MODELS[model] ?? DEFAULT_MODEL;
+  return RETIRED_MODELS[model] ?? model;
 }
 async function getSettings() {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-  const settings = { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] ?? {} };
-  return { ...settings, model: migrateModel(settings.model) };
+  const stored = ((result) => result[STORAGE_KEYS.SETTINGS] ?? {})(
+    await chrome.storage.local.get(STORAGE_KEYS.SETTINGS)
+  );
+  const settings = { ...DEFAULT_SETTINGS, ...stored };
+  return {
+    ...settings,
+    // The key field used to be named after the only provider there was.
+    apiKey: settings.apiKey || stored.openRouterApiKey || "",
+    model: migrateModel(settings.model)
+  };
 }
 async function setSettings(settings) {
   await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: settings });
@@ -97,6 +121,7 @@ async function setSettings(settings) {
 export {
   AVAILABLE_MODELS as A,
   BACKOFF_BASE_MS as B,
+  GEMINI_MODELS_URL as G,
   MANUAL_LOG_PULL_HANDS as M,
   NAGA_BASE_URL as N,
   OPENAI_BASE_URL as O,
@@ -108,8 +133,10 @@ export {
   MAX_RETRY_AFTER_MS as c,
   MIN_HANDS_FOR_STATS as d,
   OPENROUTER_BASE_URL as e,
-  getSettings as g,
-  hasReasoningOnByDefault as h,
+  canDisableThinking as f,
+  geminiStreamUrl as g,
+  getSettings as h,
+  hasReasoningOnByDefault as i,
   setSettings as s
 };
 //# sourceMappingURL=storage.js.map

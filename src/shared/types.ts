@@ -134,7 +134,8 @@ export type AfkMode = 'off' | 'check-fold' | 'fold' | 'auto';
 
 
 export interface Settings {
-  openRouterApiKey: string;
+  /** Provider-agnostic: Gemini (AIza…), OpenRouter (sk-or-…), Naga, OpenAI. */
+  apiKey: string;
   model: string;
   autoAnalyze: boolean;
   showOverlays: boolean;

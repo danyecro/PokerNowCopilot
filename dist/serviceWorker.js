@@ -1,4 +1,5 @@
-import { g as getSettings, e as OPENROUTER_BASE_URL, N as NAGA_BASE_URL, O as OPENAI_BASE_URL, A as AVAILABLE_MODELS, b as MAX_ATTEMPTS, R as RETRYABLE_STATUSES, h as hasReasoningOnByDefault, c as MAX_RETRY_AFTER_MS, B as BACKOFF_BASE_MS, a as BACKOFF_CAP_MS } from "./chunks/storage.js";
+import { h as getSettings, g as geminiStreamUrl, e as OPENROUTER_BASE_URL, N as NAGA_BASE_URL, O as OPENAI_BASE_URL, A as AVAILABLE_MODELS, b as MAX_ATTEMPTS, R as RETRYABLE_STATUSES, f as canDisableThinking, i as hasReasoningOnByDefault, c as MAX_RETRY_AFTER_MS, B as BACKOFF_BASE_MS, a as BACKOFF_CAP_MS } from "./chunks/storage.js";
+import { s as sanitizeApiKey, a as apiKeyProblem, p as providerFromKey } from "./chunks/apiKey.js";
 import { c as cardToString, b as boardToString } from "./chunks/cardUtils.js";
 function buildPrompt(gameState, stats) {
   const hero = gameState.seats.find((s) => s.isHero);
@@ -116,29 +117,8 @@ Keep each point to 1-2 sentences. Be direct and actionable.`;
   };
 }
 let currentAbortController = null;
-const INVISIBLE = /[\s\u00A0\u1680\u2000-\u200D\u2028\u2029\u202F\u205F\u3000\uFEFF]/g;
-const NON_LATIN1 = /[^\u0000-\u00FF]/;
-function sanitizeApiKey(raw) {
-  return raw.replace(INVISIBLE, "");
-}
-function apiKeyProblem(key) {
-  if (!key) return "No API key configured. Please add it in the extension settings.";
-  const match = NON_LATIN1.exec(key);
-  if (match) {
-    const cp = match[0].codePointAt(0) ?? 0;
-    const hex = `U+${cp.toString(16).toUpperCase().padStart(4, "0")}`;
-    return `API key contains a character that cannot be sent in an HTTP header (${hex} at position ${key.indexOf(match[0]) + 1} of ${key.length}). Re-enter the key as plain text in the extension settings.`;
-  }
-  return null;
-}
-function providerFromKey(apiKey) {
-  if (apiKey.startsWith("sk-or-")) return "openrouter";
-  if (apiKey.startsWith("ng-")) return "naga";
-  if (apiKey.startsWith("sk-")) return "openai";
-  return null;
-}
 function resolveProvider(apiKey, model) {
-  return providerFromKey(apiKey) ?? AVAILABLE_MODELS.find((m) => m.id === model)?.provider ?? "naga";
+  return providerFromKey(apiKey) ?? AVAILABLE_MODELS.find((m) => m.id === model)?.provider ?? (model.startsWith("gemini") ? "gemini" : "naga");
 }
 function modelProviderMismatch(provider, model) {
   const known = AVAILABLE_MODELS.find((m) => m.id === model);
@@ -148,6 +128,15 @@ function modelProviderMismatch(provider, model) {
 }
 function resolveEndpointAndHeaders(apiKey, model) {
   const provider = resolveProvider(apiKey, model);
+  if (provider === "gemini") {
+    const modelId2 = model.replace(/^models\//, "");
+    return {
+      provider,
+      url: geminiStreamUrl(modelId2),
+      headers: { "x-goog-api-key": apiKey, "Content-Type": "application/json" },
+      modelId: modelId2
+    };
+  }
   const headers = {
     "Authorization": `Bearer ${apiKey}`,
     "Content-Type": "application/json"
@@ -164,6 +153,22 @@ function resolveEndpointAndHeaders(apiKey, model) {
   return { provider, url: OPENAI_BASE_URL, headers, modelId };
 }
 function buildBody(provider, modelId, system, user, maxTokens, temperature) {
+  if (provider === "gemini") {
+    const generationConfig = {
+      temperature,
+      maxOutputTokens: maxTokens
+    };
+    if (canDisableThinking(modelId)) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    } else {
+      generationConfig.maxOutputTokens = maxTokens * 4;
+    }
+    return {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      generationConfig
+    };
+  }
   const base = {
     model: modelId,
     messages: [
@@ -278,7 +283,22 @@ async function fetchStreamWithRetry(url, body, headers, model, signal, onStatus,
   onError(`Request failed after ${MAX_ATTEMPTS} attempts${lastDetail ? `: ${lastDetail}` : ""}`);
   return null;
 }
-async function readSSEStream(body, onChunk, onDone, onError) {
+function extractStreamChunk(payload, provider) {
+  if (provider === "gemini") {
+    const candidate = payload?.candidates?.[0];
+    const parts = candidate?.content?.parts;
+    const text = Array.isArray(parts) ? parts.map((p) => typeof p?.text === "string" ? p.text : "").join("") : "";
+    return { text, final: Boolean(candidate?.finishReason) };
+  }
+  const choice = payload?.choices?.[0];
+  return {
+    text: typeof choice?.delta?.content === "string" ? choice.delta.content : "",
+    // Naga closes the stream after a chunk carrying finish_reason instead of
+    // sending the [DONE] sentinel, so treat that as terminal too.
+    final: Boolean(choice?.finish_reason)
+  };
+}
+async function readSSEStream(body, provider, onChunk, onDone, onError) {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -300,9 +320,13 @@ async function readSSEStream(body, onChunk, onDone, onError) {
       onError(payload.error.message ?? `Stream error: ${JSON.stringify(payload.error)}`);
       return true;
     }
-    const content = payload?.choices?.[0]?.delta?.content;
-    if (content) onChunk(content);
-    return Boolean(payload?.choices?.[0]?.finish_reason);
+    const { text, final } = extractStreamChunk(payload, provider);
+    if (text) onChunk(text);
+    if (final) {
+      onDone();
+      return true;
+    }
+    return false;
   };
   try {
     while (true) {
@@ -328,7 +352,7 @@ async function analyzeHand(gameState, stats, onChunk, onDone, onError, onStatus)
   currentAbortController?.abort();
   currentAbortController = new AbortController();
   const settings = await getSettings();
-  const apiKey = sanitizeApiKey(settings.openRouterApiKey);
+  const apiKey = sanitizeApiKey(settings.apiKey);
   const keyProblem = apiKeyProblem(apiKey);
   if (keyProblem) {
     onError(keyProblem);
@@ -359,7 +383,7 @@ async function analyzeHand(gameState, stats, onChunk, onDone, onError, onStatus)
       onError("No response body");
       return;
     }
-    await readSSEStream(resp.body, onChunk, onDone, onError);
+    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") return;
     onError(err instanceof Error ? err.message : String(err));
@@ -369,7 +393,7 @@ async function analyzeExploit(target, gameState, onChunk, onDone, onError, onSta
   currentAbortController?.abort();
   currentAbortController = new AbortController();
   const settings = await getSettings();
-  const apiKey = sanitizeApiKey(settings.openRouterApiKey);
+  const apiKey = sanitizeApiKey(settings.apiKey);
   const keyProblem = apiKeyProblem(apiKey);
   if (keyProblem) {
     onError(keyProblem);
@@ -400,7 +424,7 @@ async function analyzeExploit(target, gameState, onChunk, onDone, onError, onSta
       onError("No response body");
       return;
     }
-    await readSSEStream(resp.body, onChunk, onDone, onError);
+    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
   } catch (err) {
     if (err instanceof Error && err.name === "AbortError") return;
     onError(err instanceof Error ? err.message : String(err));

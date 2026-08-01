@@ -10,18 +10,26 @@
     <h1>PokerNow Copilot Settings</h1>
 
     <div class="field">
-      <label for="api-key">OpenRouter API Key</label>
-      <input type="password" id="api-key" placeholder="sk-or-v1-..." autocomplete="off" />
+      <label for="api-key">API Key</label>
+      <input type="password" id="api-key" placeholder="AIza..." autocomplete="off" />
       <small>
-        Get a free key at <a href="https://openrouter.ai/keys" target="_blank">openrouter.ai/keys</a>.
-        Stored locally — never leaves your browser except to OpenRouter.
+        Gemini key from <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a>
+        (free tier available). OpenRouter (<code>sk-or-</code>), Naga (<code>ng-</code>) and OpenAI
+        (<code>sk-</code>) keys still work — the prefix picks the provider.
+        Stored locally, sent only to that provider.
       </small>
+      <small id="key-provider" class="provider-hint"></small>
     </div>
 
     <div class="field">
       <label for="model">AI Model</label>
       <select id="model"></select>
-      <small>Free models cost nothing — Hermes-3 405B gives the best poker analysis.</small>
+      <div class="model-actions">
+        <button type="button" id="btn-refresh-models">Load Gemini models</button>
+        <span id="models-status"></span>
+      </div>
+      <small>Gemini 2.5 Flash is the default: fast, free tier, thinking switched off so the
+        answer fits the token budget.</small>
     </div>
 
     <!-- Auto-analyze lives in the side panel header (the "AUTO" button) so it can

@@ -1,10 +1,12 @@
-import type { GameState, PlayerStats } from '../shared/types';
+﻿import type { GameState, PlayerStats } from '../shared/types';
 import { getSettings } from '../shared/storage';
 import {
   AVAILABLE_MODELS,
   OPENROUTER_BASE_URL,
   OPENAI_BASE_URL,
   NAGA_BASE_URL,
+  canDisableThinking,
+  geminiStreamUrl,
   MAX_ATTEMPTS,
   RETRYABLE_STATUSES,
   BACKOFF_BASE_MS,
@@ -13,6 +15,7 @@ import {
   hasReasoningOnByDefault,
   type Provider,
 } from '../shared/constants';
+import { apiKeyProblem, providerFromKey, sanitizeApiKey } from '../shared/apiKey';
 import { buildPrompt, buildExploitPrompt } from './promptBuilder';
 
 let currentAbortController: AbortController | null = null;
@@ -22,52 +25,15 @@ export type DoneCallback    = ()               => void;
 export type ErrorCallback   = (error: string)  => void;
 export type StatusCallback  = (label: string)  => void;
 
-// ── API key hygiene ───────────────────────────────────────────────────────────
-// HTTP header values must be ISO-8859-1. A key pasted from a web page often
-// carries invisible passengers — non-breaking space, zero-width space, a BOM —
-// and `fetch` then throws before any request goes out:
-//   "Failed to read the 'headers' property from 'RequestInit':
-//    String contains non ISO-8859-1 code point."
-// That is permanent, not a network blip, so it must not be retried either.
-
-const INVISIBLE = /[\s\u00A0\u1680\u2000-\u200D\u2028\u2029\u202F\u205F\u3000\uFEFF]/g;
-const NON_LATIN1 = /[^\u0000-\u00FF]/;
-
-/** Drops whitespace and zero-width characters that survive copy-paste. */
-export function sanitizeApiKey(raw: string): string {
-  return raw.replace(INVISIBLE, '');
-}
-
-/** Human-readable reason the key cannot be used, or null when it is fine. */
-function apiKeyProblem(key: string): string | null {
-  if (!key) return 'No API key configured. Please add it in the extension settings.';
-  const match = NON_LATIN1.exec(key);
-  if (match) {
-    const cp = match[0].codePointAt(0) ?? 0;
-    const hex = `U+${cp.toString(16).toUpperCase().padStart(4, '0')}`;
-    return `API key contains a character that cannot be sent in an HTTP header `
-         + `(${hex} at position ${key.indexOf(match[0]) + 1} of ${key.length}). `
-         + `Re-enter the key as plain text in the extension settings.`;
-  }
-  return null;
-}
-
 // ── Endpoint resolver ─────────────────────────────────────────────────────────
-
-/** The key decides which service can authenticate us at all. */
-function providerFromKey(apiKey: string): Provider | null {
-  if (apiKey.startsWith('sk-or-')) return 'openrouter';
-  if (apiKey.startsWith('ng-'))    return 'naga';
-  if (apiKey.startsWith('sk-'))    return 'openai';
-  return null;
-}
 
 function resolveProvider(apiKey: string, model: string): Provider {
   // Key prefix is authoritative: a Naga key cannot talk to OpenRouter no matter
-  // which model is selected. Fall back to the catalog tag for unknown prefixes.
+  // which model is selected. Fall back to the catalog tag for unknown prefixes,
+  // then to the model id — a freshly fetched Gemini id is not in the catalog.
   return providerFromKey(apiKey)
       ?? AVAILABLE_MODELS.find(m => m.id === model)?.provider
-      ?? 'naga';
+      ?? (model.startsWith('gemini') ? 'gemini' : 'naga');
 }
 
 /**
@@ -89,6 +55,20 @@ function resolveEndpointAndHeaders(apiKey: string, model: string): {
   modelId: string;
 } {
   const provider = resolveProvider(apiKey, model);
+
+  if (provider === 'gemini') {
+    // Google authenticates with its own header, and the model lives in the URL
+    // rather than the body. A Bearer token here means an OAuth access token,
+    // which an AI Studio key is not.
+    const modelId = model.replace(/^models\//, '');
+    return {
+      provider,
+      url: geminiStreamUrl(modelId),
+      headers: { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+      modelId,
+    };
+  }
+
   const headers: Record<string, string> = {
     'Authorization': `Bearer ${apiKey}`,
     'Content-Type':  'application/json',
@@ -126,6 +106,25 @@ function buildBody(
   maxTokens: number,
   temperature: number,
 ): object {
+  if (provider === 'gemini') {
+    const generationConfig: Record<string, unknown> = {
+      temperature,
+      maxOutputTokens: maxTokens,
+    };
+    if (canDisableThinking(modelId)) {
+      generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    } else {
+      // Pro cannot switch thinking off, so the cap has to cover the trace as
+      // well or the answer comes back empty with finishReason MAX_TOKENS.
+      generationConfig.maxOutputTokens = maxTokens * 4;
+    }
+    return {
+      systemInstruction: { parts: [{ text: system }] },
+      contents: [{ role: 'user', parts: [{ text: user }] }],
+      generationConfig,
+    };
+  }
+
   const base: Record<string, unknown> = {
     model: modelId,
     messages: [
@@ -285,8 +284,39 @@ async function fetchStreamWithRetry(
 
 // ── SSE stream reader ─────────────────────────────────────────────────────────
 
+/**
+ * Pulls the visible text out of one streamed event.
+ *
+ * Gemini nests it under candidates[].content.parts[].text and can split a
+ * single turn across several parts; the OpenAI-shaped providers put it in
+ * choices[0].delta.content. Returns the text plus whether this event ends the
+ * stream — Gemini never sends a [DONE] sentinel, it just marks a finishReason
+ * and closes the body.
+ */
+function extractStreamChunk(payload: any, provider: Provider): { text: string; final: boolean } {
+  if (provider === 'gemini') {
+    const candidate = payload?.candidates?.[0];
+    const parts = candidate?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts.map((p: any) => (typeof p?.text === 'string' ? p.text : '')).join('')
+      : '';
+    // SAFETY / RECITATION / MAX_TOKENS all arrive as a finishReason, so a
+    // truncated answer still terminates cleanly instead of hanging.
+    return { text, final: Boolean(candidate?.finishReason) };
+  }
+
+  const choice = payload?.choices?.[0];
+  return {
+    text: typeof choice?.delta?.content === 'string' ? choice.delta.content : '',
+    // Naga closes the stream after a chunk carrying finish_reason instead of
+    // sending the [DONE] sentinel, so treat that as terminal too.
+    final: Boolean(choice?.finish_reason),
+  };
+}
+
 async function readSSEStream(
   body: ReadableStream<Uint8Array>,
+  provider: Provider,
   onChunk: StreamCallback,
   onDone: DoneCallback,
   onError: ErrorCallback,
@@ -316,11 +346,10 @@ async function readSSEStream(
       onError(payload.error.message ?? `Stream error: ${JSON.stringify(payload.error)}`);
       return true;
     }
-    const content = payload?.choices?.[0]?.delta?.content;
-    if (content) onChunk(content);
-    // Naga closes the stream after a chunk carrying finish_reason instead of
-    // sending the [DONE] sentinel, so treat that as terminal too.
-    return Boolean(payload?.choices?.[0]?.finish_reason);
+    const { text, final } = extractStreamChunk(payload, provider);
+    if (text) onChunk(text);
+    if (final) { onDone(); return true; }
+    return false;
   };
 
   try {
@@ -361,7 +390,7 @@ export async function analyzeHand(
   currentAbortController = new AbortController();
 
   const settings = await getSettings();
-  const apiKey = sanitizeApiKey(settings.openRouterApiKey);
+  const apiKey = sanitizeApiKey(settings.apiKey);
   const keyProblem = apiKeyProblem(apiKey);
   if (keyProblem) { onError(keyProblem); return; }
 
@@ -386,7 +415,7 @@ export async function analyzeHand(
     );
     if (!resp) return;
     if (!resp.body) { onError('No response body'); return; }
-    await readSSEStream(resp.body, onChunk, onDone, onError);
+    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return;
     onError(err instanceof Error ? err.message : String(err));
@@ -405,7 +434,7 @@ export async function analyzeExploit(
   currentAbortController = new AbortController();
 
   const settings = await getSettings();
-  const apiKey = sanitizeApiKey(settings.openRouterApiKey);
+  const apiKey = sanitizeApiKey(settings.apiKey);
   const keyProblem = apiKeyProblem(apiKey);
   if (keyProblem) { onError(keyProblem); return; }
 
@@ -430,7 +459,7 @@ export async function analyzeExploit(
     );
     if (!resp) return;
     if (!resp.body) { onError('No response body'); return; }
-    await readSSEStream(resp.body, onChunk, onDone, onError);
+    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return;
     onError(err instanceof Error ? err.message : String(err));

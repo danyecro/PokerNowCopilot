@@ -75,8 +75,15 @@
     }
     return ok;
   }
-  const DEFAULT_MODEL = "inclusionai/ling-3.0-flash:free";
+  const DEFAULT_MODEL = "gemini-2.5-flash";
   const AVAILABLE_MODELS = [
+    // ── Google Gemini API (key: AIza...) — ai.google.dev/gemini-api ───────────
+    // The options page can refresh this list from the live /v1beta/models
+    // endpoint, which is authoritative; these are the stable ids to start from.
+    { id: "gemini-2.5-flash", label: "⭐ Gemini 2.5 Flash (fast, free tier)", provider: "gemini" },
+    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (strongest)", provider: "gemini" },
+    { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (cheapest)", provider: "gemini" },
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
     // ── OpenRouter FREE (key: sk-or-...) — catalog checked 2026-07-27 ─────────
     // Excluded from the live free list on purpose:
     //   google/gemma-4-31b-it:free            90% of requests rate-limited (11k ok / 103k limited per day)
@@ -593,7 +600,7 @@
     document.body.appendChild(badge);
   }
   const DEFAULT_SETTINGS = {
-    openRouterApiKey: "",
+    apiKey: "",
     model: DEFAULT_MODEL,
     autoAnalyze: false,
     showOverlays: true,
@@ -604,13 +611,21 @@
     logPullHands: MANUAL_LOG_PULL_HANDS
   };
   function migrateModel(model) {
+    if (!model) return DEFAULT_MODEL;
     if (isKnownModel(model)) return model;
-    return RETIRED_MODELS[model] ?? DEFAULT_MODEL;
+    return RETIRED_MODELS[model] ?? model;
   }
   async function getSettings() {
-    const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-    const settings = { ...DEFAULT_SETTINGS, ...result[STORAGE_KEYS.SETTINGS] ?? {} };
-    return { ...settings, model: migrateModel(settings.model) };
+    const stored = ((result) => result[STORAGE_KEYS.SETTINGS] ?? {})(
+      await chrome.storage.local.get(STORAGE_KEYS.SETTINGS)
+    );
+    const settings = { ...DEFAULT_SETTINGS, ...stored };
+    return {
+      ...settings,
+      // The key field used to be named after the only provider there was.
+      apiKey: settings.apiKey || stored.openRouterApiKey || "",
+      model: migrateModel(settings.model)
+    };
   }
   async function setSettings(settings) {
     await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: settings });

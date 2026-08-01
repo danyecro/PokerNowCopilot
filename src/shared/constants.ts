@@ -1,7 +1,7 @@
-export const DEFAULT_MODEL = 'inclusionai/ling-3.0-flash:free';
+export const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 /** Which upstream a model is routed to. Explicit tag beats guessing from the key. */
-export type Provider = 'openrouter' | 'naga' | 'openai';
+export type Provider = 'openrouter' | 'naga' | 'openai' | 'gemini';
 
 type ModelEntry = {
   id: string;
@@ -17,6 +17,13 @@ type ModelEntry = {
 };
 
 export const AVAILABLE_MODELS = [
+  // ── Google Gemini API (key: AIza...) — ai.google.dev/gemini-api ───────────
+  // The options page can refresh this list from the live /v1beta/models
+  // endpoint, which is authoritative; these are the stable ids to start from.
+  { id: 'gemini-2.5-flash',      label: '⭐ Gemini 2.5 Flash (fast, free tier)', provider: 'gemini' },
+  { id: 'gemini-2.5-pro',        label: 'Gemini 2.5 Pro (strongest)',            provider: 'gemini' },
+  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (cheapest)',      provider: 'gemini' },
+  { id: 'gemini-2.0-flash',      label: 'Gemini 2.0 Flash',                      provider: 'gemini' },
   // ── OpenRouter FREE (key: sk-or-...) — catalog checked 2026-07-27 ─────────
   // Excluded from the live free list on purpose:
   //   google/gemma-4-31b-it:free            90% of requests rate-limited (11k ok / 103k limited per day)
@@ -82,6 +89,36 @@ export function hasReasoningOnByDefault(id: string): boolean {
 export const OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1/chat/completions';
 export const OPENAI_BASE_URL = 'https://api.openai.com/v1/chat/completions';
 export const NAGA_BASE_URL = 'https://api.naga.ac/v1/chat/completions';
+
+// ── Gemini ────────────────────────────────────────────────────────────────────
+// Not OpenAI-compatible: model in the path, key in x-goog-api-key, its own
+// request and stream shapes. ai.google.dev/gemini-api/docs
+export const GEMINI_BASE_URL = 'https://generativelanguage.googleapis.com/v1beta';
+
+/** Server-sent-events variant of generateContent for the given model. */
+export function geminiStreamUrl(modelId: string): string {
+  return `${GEMINI_BASE_URL}/models/${modelId}:streamGenerateContent?alt=sse`;
+}
+
+/** Lists the models this key may call — the live truth about available ids. */
+export const GEMINI_MODELS_URL = `${GEMINI_BASE_URL}/models`;
+
+/**
+ * True for Gemini models whose thinking budget can be set to zero.
+ *
+ * 2.5 models think by default and those tokens count against maxOutputTokens,
+ * the same trap the OpenRouter reasoning models set: at a 600-token cap the
+ * trace eats the budget and the visible answer arrives empty. Flash and
+ * Flash-Lite accept a budget of 0; Pro rejects it (128 is its minimum), so it
+ * keeps thinking and gets a larger cap instead.
+ */
+export function canDisableThinking(modelId: string): boolean {
+  // Thinking arrived with the 2.5 series; sending thinkingConfig to an older
+  // model is a 400, so the generations that never had it are excluded rather
+  // than matched for — a future 3.x Flash should get the budget switched off.
+  if (/^gemini-(1\.|2\.0)/.test(modelId)) return false;
+  return modelId.includes('flash');
+}
 
 // ── Retry policy ──────────────────────────────────────────────────────────────
 // Naga documents 503 as "upstream service error — retry with capped backoff",

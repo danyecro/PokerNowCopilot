@@ -5,7 +5,7 @@ import {
 } from './constants';
 
 const DEFAULT_SETTINGS: Settings = {
-  openRouterApiKey: '',
+  apiKey: '',
   model: DEFAULT_MODEL,
   autoAnalyze: false,
   showOverlays: true,
@@ -16,16 +16,31 @@ const DEFAULT_SETTINGS: Settings = {
   logPullHands: MANUAL_LOG_PULL_HANDS,
 };
 
-/** Migrates a stored model id that has since been retired or removed. */
+/**
+ * Migrates a stored model id that has since been retired or removed.
+ *
+ * An id that is merely unknown is kept: the options page can pull the live
+ * Gemini catalog, and resetting a model this build has never heard of would
+ * silently undo that choice on the next read.
+ */
 function migrateModel(model: string): string {
+  if (!model) return DEFAULT_MODEL;
   if (isKnownModel(model)) return model;
-  return RETIRED_MODELS[model] ?? DEFAULT_MODEL;
+  return RETIRED_MODELS[model] ?? model;
 }
 
 export async function getSettings(): Promise<Settings> {
-  const result = await chrome.storage.local.get(STORAGE_KEYS.SETTINGS);
-  const settings: Settings = { ...DEFAULT_SETTINGS, ...(result[STORAGE_KEYS.SETTINGS] ?? {}) };
-  return { ...settings, model: migrateModel(settings.model) };
+  const stored = (result => result[STORAGE_KEYS.SETTINGS] ?? {})(
+    await chrome.storage.local.get(STORAGE_KEYS.SETTINGS),
+  ) as Partial<Settings> & { openRouterApiKey?: string };
+
+  const settings: Settings = { ...DEFAULT_SETTINGS, ...stored };
+  return {
+    ...settings,
+    // The key field used to be named after the only provider there was.
+    apiKey: settings.apiKey || stored.openRouterApiKey || '',
+    model: migrateModel(settings.model),
+  };
 }
 export async function setSettings(settings: Settings): Promise<void> {
   await chrome.storage.local.set({ [STORAGE_KEYS.SETTINGS]: settings });

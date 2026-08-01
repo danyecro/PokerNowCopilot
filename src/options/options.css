@@ -106,3 +106,32 @@ button:hover { background: #c0392b; }
 }
 
 #save-status.error { color: #e74c3c; }
+
+/* Model list refresh */
+.model-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+#btn-refresh-models {
+  background: #0f3460;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+#btn-refresh-models:hover { background: #16528a; }
+#btn-refresh-models:disabled { opacity: 0.55; cursor: default; }
+
+#models-status { font-size: 11px; color: #7f8c99; }
+#models-status.error { color: #e74c3c; }
+
+.provider-hint { color: #7aa2c8 !important; }
+
+.field small code {
+  background: #16213e;
+  padding: 1px 4px;
+  border-radius: 3px;
+}
