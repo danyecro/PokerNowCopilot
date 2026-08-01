@@ -131,6 +131,16 @@ export interface PlayerNote {
  */
 export type AfkMode = 'off' | 'check-fold' | 'fold' | 'auto';
 
+/**
+ * Which requests go to a configured Agent Engine.
+ *  - 'off'     — none; the direct model call is always used
+ *  - 'exploit' — only player reads. The hand decision stays direct because the
+ *                agent adds a session round trip and a possible cold start to a
+ *                decision measured in seconds.
+ *  - 'all'     — every request goes to the agent
+ */
+export type AgentEngineMode = 'off' | 'exploit' | 'all';
+
 
 
 export interface Settings {
@@ -143,4 +153,11 @@ export interface Settings {
   afkMode: AfkMode;
   /** Hands a manual log pull reads — the side panel's Log dropdown. */
   logPullHands: number;
+  /**
+   * Deployed ADK agent, as `projects/{p}/locations/{l}/reasoningEngines/{id}`.
+   * Empty means no agent is configured and every request goes straight to the
+   * model.
+   */
+  agentEngineResource: string;
+  agentEngineMode: AgentEngineMode;
 }

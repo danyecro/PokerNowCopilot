@@ -1,4 +1,4 @@
-﻿import type { GameState, PlayerStats } from '../shared/types';
+﻿import type { GameState, PlayerStats, Settings } from '../shared/types';
 import { getSettings } from '../shared/storage';
 import {
   AVAILABLE_MODELS,
@@ -16,6 +16,7 @@ import {
   type Provider,
 } from '../shared/constants';
 import { apiKeyProblem, providerFromKey, sanitizeApiKey } from '../shared/apiKey';
+import { buildRunRequest, getSessionId, resetSession } from './agentEngineClient';
 import { buildPrompt, buildExploitPrompt } from './promptBuilder';
 
 let currentAbortController: AbortController | null = null;
@@ -294,6 +295,19 @@ async function fetchStreamWithRetry(
  * and closes the body.
  */
 function extractStreamChunk(payload: any, provider: Provider): { text: string; final: boolean } {
+  if (provider === 'agentengine') {
+    // Raw ADK events in snake_case. Sub-agents answer under their own `author`,
+    // which is fine — their format is the contract for those requests.
+    const parts = payload?.content?.parts;
+    const text = Array.isArray(parts)
+      ? parts
+          .filter((p: any) => p?.thought !== true)   // never surface the trace
+          .map((p: any) => (typeof p?.text === 'string' ? p.text : ''))
+          .join('')
+      : '';
+    return { text, final: Boolean(payload?.finish_reason) };
+  }
+
   if (provider === 'gemini') {
     const candidate = payload?.candidates?.[0];
     const parts = candidate?.content?.parts;
@@ -328,9 +342,12 @@ async function readSSEStream(
   /** Returns true when the stream is finished and the caller should stop. */
   const handleLine = (line: string): boolean => {
     // Some providers omit the space after "data:"; ": keep-alive" comments
-    // and empty lines are skipped.
-    if (!line.startsWith('data:')) return false;
-    const data = line.slice(5).trim();
+    // and empty lines are skipped. Agent Engine answers `?alt=sse` with bare
+    // newline-delimited JSON and no `data:` framing at all, so accept both.
+    const trimmed = line.trim();
+    const data = trimmed.startsWith('data:')
+      ? trimmed.slice(5).trim()
+      : trimmed.startsWith('{') ? trimmed : '';
     if (!data) return false;
     if (data === '[DONE]') { onDone(); return true; }
 
@@ -378,6 +395,13 @@ async function readSSEStream(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+interface Callbacks {
+  onChunk:  StreamCallback;
+  onDone:   DoneCallback;
+  onError:  ErrorCallback;
+  onStatus: StatusCallback;
+}
+
 export async function analyzeHand(
   gameState: GameState,
   stats: Record<string, PlayerStats>,
@@ -386,40 +410,8 @@ export async function analyzeHand(
   onError:  ErrorCallback,
   onStatus: StatusCallback,
 ): Promise<void> {
-  currentAbortController?.abort();
-  currentAbortController = new AbortController();
-
-  const settings = await getSettings();
-  const apiKey = sanitizeApiKey(settings.apiKey);
-  const keyProblem = apiKeyProblem(apiKey);
-  if (keyProblem) { onError(keyProblem); return; }
-
-  const { provider, url, headers, modelId } = resolveEndpointAndHeaders(
-    apiKey,
-    settings.model,
-  );
-  const mismatch = modelProviderMismatch(provider, settings.model);
-  if (mismatch) { onError(mismatch); return; }
-
   const { system, user } = buildPrompt(gameState, stats);
-
-  try {
-    const resp = await fetchStreamWithRetry(
-      url,
-      buildBody(provider, modelId, system, user, 600, 0.3),
-      headers,
-      modelId,
-      currentAbortController.signal,
-      onStatus,
-      onError,
-    );
-    if (!resp) return;
-    if (!resp.body) { onError('No response body'); return; }
-    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
-  } catch (err) {
-    if (err instanceof Error && err.name === 'AbortError') return;
-    onError(err instanceof Error ? err.message : String(err));
-  }
+  await run('hand', system, user, 600, 0.3, { onChunk, onDone, onError, onStatus });
 }
 
 export async function analyzeExploit(
@@ -430,39 +422,116 @@ export async function analyzeExploit(
   onError:  ErrorCallback,
   onStatus: StatusCallback,
 ): Promise<void> {
+  const { system, user } = buildExploitPrompt(target, gameState);
+  await run('exploit', system, user, 400, 0.25, { onChunk, onDone, onError, onStatus });
+}
+
+/**
+ * One request, to whichever backend the settings point at.
+ *
+ * The two paths differ in more than the URL: a deployed agent already carries
+ * its own instruction, so it is sent the context block alone — passing our
+ * system prompt too would fight with the agent's own.
+ */
+async function run(
+  kind: 'hand' | 'exploit',
+  system: string,
+  user: string,
+  maxTokens: number,
+  temperature: number,
+  cb: Callbacks,
+): Promise<void> {
   currentAbortController?.abort();
   currentAbortController = new AbortController();
+  const signal = currentAbortController.signal;
 
   const settings = await getSettings();
   const apiKey = sanitizeApiKey(settings.apiKey);
   const keyProblem = apiKeyProblem(apiKey);
-  if (keyProblem) { onError(keyProblem); return; }
+  if (keyProblem) { cb.onError(keyProblem); return; }
 
-  const { provider, url, headers, modelId } = resolveEndpointAndHeaders(
-    apiKey,
-    settings.model,
-  );
+  if (usesAgentEngine(settings, kind)) {
+    await runOnAgentEngine(settings.agentEngineResource, apiKey, user, signal, cb);
+    return;
+  }
+
+  const { provider, url, headers, modelId } = resolveEndpointAndHeaders(apiKey, settings.model);
   const mismatch = modelProviderMismatch(provider, settings.model);
-  if (mismatch) { onError(mismatch); return; }
-
-  const { system, user } = buildExploitPrompt(target, gameState);
+  if (mismatch) { cb.onError(mismatch); return; }
 
   try {
     const resp = await fetchStreamWithRetry(
       url,
-      buildBody(provider, modelId, system, user, 400, 0.25),
+      buildBody(provider, modelId, system, user, maxTokens, temperature),
       headers,
       modelId,
-      currentAbortController.signal,
-      onStatus,
-      onError,
+      signal,
+      cb.onStatus,
+      cb.onError,
     );
     if (!resp) return;
-    if (!resp.body) { onError('No response body'); return; }
-    await readSSEStream(resp.body, provider, onChunk, onDone, onError);
+    if (!resp.body) { cb.onError('No response body'); return; }
+    await readSSEStream(resp.body, provider, cb.onChunk, cb.onDone, cb.onError);
   } catch (err) {
     if (err instanceof Error && err.name === 'AbortError') return;
-    onError(err instanceof Error ? err.message : String(err));
+    cb.onError(err instanceof Error ? err.message : String(err));
+  }
+}
+
+function usesAgentEngine(settings: Settings, kind: 'hand' | 'exploit'): boolean {
+  if (!settings.agentEngineResource) return false;
+  return settings.agentEngineMode === 'all'
+      || (settings.agentEngineMode === 'exploit' && kind === 'exploit');
+}
+
+/**
+ * Runs the request against the deployed agent.
+ *
+ * A session has to exist before the agent will answer — the run call fails
+ * without one — and it is reused across requests so the agent keeps context
+ * between hands. A session that has gone away is recreated once rather than
+ * surfaced as an error.
+ */
+async function runOnAgentEngine(
+  resource: string,
+  apiKey: string,
+  message: string,
+  signal: AbortSignal,
+  cb: Callbacks,
+  isRetry = false,
+): Promise<void> {
+  try {
+    cb.onStatus(isRetry ? '🤖 Agent — new session…' : '🤖 Agent…');
+    const sessionId = await getSessionId(resource, apiKey);
+    const request = buildRunRequest(resource, sessionId, message);
+    if (!request) {
+      cb.onError(`Not an Agent Engine resource name: "${resource}"`);
+      return;
+    }
+
+    const resp = await fetchStreamWithRetry(
+      request.url,
+      request.body,
+      { 'x-goog-api-key': apiKey, 'Content-Type': 'application/json' },
+      'agent',
+      signal,
+      cb.onStatus,
+      // Swallow the first failure: it is usually a session that expired, and
+      // the retry below is the fix. Only the second attempt reports.
+      isRetry ? cb.onError : () => {},
+    );
+
+    if (!resp) {
+      if (isRetry) return;
+      await resetSession();
+      await runOnAgentEngine(resource, apiKey, message, signal, cb, true);
+      return;
+    }
+    if (!resp.body) { cb.onError('No response body'); return; }
+    await readSSEStream(resp.body, 'agentengine', cb.onChunk, cb.onDone, cb.onError);
+  } catch (err) {
+    if (err instanceof Error && err.name === 'AbortError') return;
+    cb.onError(err instanceof Error ? err.message : String(err));
   }
 }
 

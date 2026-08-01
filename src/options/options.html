@@ -33,6 +33,28 @@
         answer fits the token budget.</small>
     </div>
 
+    <div class="field">
+      <label for="agent-resource">Agent Engine (optional)</label>
+      <input type="text" id="agent-resource" autocomplete="off"
+             placeholder="projects/…/locations/…/reasoningEngines/…" />
+      <small>
+        Resource name of a deployed ADK agent — copy it from the Agent Engine console.
+        Uses the same API key, which must allow the <em>Agent Platform API</em>
+        (<code>aiplatform.googleapis.com</code>). Leave empty to always call the model directly.
+      </small>
+    </div>
+
+    <div class="field">
+      <label for="agent-mode">Send to the agent</label>
+      <select id="agent-mode">
+        <option value="exploit">Player reads only (recommended)</option>
+        <option value="all">Everything, including hand decisions</option>
+        <option value="off">Nothing — keep the direct model call</option>
+      </select>
+      <small>The agent adds a session round trip and can cold-start, which costs
+        seconds a live hand does not have. Player reads are not time-critical.</small>
+    </div>
+
     <!-- Auto-analyze lives in the side panel header (the "AUTO" button) so it can
          be flipped mid-session without leaving the table. -->
     <div class="field toggle-row">

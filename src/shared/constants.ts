@@ -1,7 +1,7 @@
 export const DEFAULT_MODEL = 'gemini-2.5-flash';
 
 /** Which upstream a model is routed to. Explicit tag beats guessing from the key. */
-export type Provider = 'openrouter' | 'naga' | 'openai' | 'gemini';
+export type Provider = 'openrouter' | 'naga' | 'openai' | 'gemini' | 'agentengine';
 
 type ModelEntry = {
   id: string;
@@ -164,5 +164,6 @@ export const STORAGE_KEYS = {
   HERO_STATS: 'copilot_hero_stats',
   SESSION_NAME_MAP: 'copilot_name_map',
   SEEN_HAND_IDS: 'copilot_seen_hand_ids',
+  AGENT_ENGINE_SESSION: 'copilot_agent_session',
   PLAYER_NOTE_PREFIX: 'player_note_',
 } as const;

@@ -1,5 +1,5 @@
 import { h as getSettings, s as setSettings, G as GEMINI_MODELS_URL, A as AVAILABLE_MODELS } from "./chunks/storage.js";
-import { s as sanitizeApiKey, p as providerFromKey } from "./chunks/apiKey.js";
+import { s as sanitizeApiKey, e as engineBaseUrl, p as providerFromKey } from "./chunks/agentEngineClient.js";
 const apiKeyInput = document.getElementById("api-key");
 const modelSelect = document.getElementById("model");
 const showOverlays = document.getElementById("show-overlays");
@@ -8,11 +8,16 @@ const saveStatus = document.getElementById("save-status");
 const keyProviderHint = document.getElementById("key-provider");
 const modelsStatus = document.getElementById("models-status");
 const refreshBtn = document.getElementById("btn-refresh-models");
+const agentResource = document.getElementById("agent-resource");
+const agentMode = document.getElementById("agent-mode");
 const PROVIDER_LABEL = {
   gemini: "Google Gemini",
   openrouter: "OpenRouter",
   naga: "Naga",
-  openai: "OpenAI"
+  openai: "OpenAI",
+  // Never inferred from a key — the agent is chosen by its resource name, and
+  // it authenticates with whichever Google key is configured.
+  agentengine: "Agent Engine"
 };
 function paintModels(extra = []) {
   const selected = modelSelect.value;
@@ -108,6 +113,8 @@ async function load() {
   modelSelect.value = settings.model;
   showOverlays.checked = settings.showOverlays;
   showSidePanel.checked = settings.showSidePanel;
+  agentResource.value = settings.agentEngineResource;
+  agentMode.value = settings.agentEngineMode;
   paintKeyHint();
 }
 document.getElementById("btn-save")?.addEventListener("click", async () => {
@@ -117,8 +124,17 @@ document.getElementById("btn-save")?.addEventListener("click", async () => {
     apiKey: sanitizeApiKey(apiKeyInput.value),
     model: modelSelect.value,
     showOverlays: showOverlays.checked,
-    showSidePanel: showSidePanel.checked
+    showSidePanel: showSidePanel.checked,
+    // Accept the "//aiplatform.googleapis.com/projects/…" form the console shows
+    // as well as the bare resource name.
+    agentEngineResource: agentResource.value.trim().replace(/^\/\/[^/]+\//, ""),
+    agentEngineMode: agentMode.value
   };
+  if (settings.agentEngineResource && !engineBaseUrl(settings.agentEngineResource)) {
+    saveStatus.textContent = "Agent resource must look like projects/…/locations/…/reasoningEngines/…";
+    saveStatus.className = "error";
+    return;
+  }
   await setSettings(settings);
   chrome.runtime.sendMessage({ type: "SETTINGS_UPDATED", settings });
   saveStatus.textContent = "Saved!";

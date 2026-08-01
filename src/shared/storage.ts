@@ -14,6 +14,8 @@ const DEFAULT_SETTINGS: Settings = {
   // to 'off' the moment you touch the table again.
   afkMode: 'off',
   logPullHands: MANUAL_LOG_PULL_HANDS,
+  agentEngineResource: '',
+  agentEngineMode: 'exploit',
 };
 
 /**

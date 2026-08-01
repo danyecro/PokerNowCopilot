@@ -85,7 +85,8 @@ const THRESHOLDS = {
 const MIN_HANDS_FOR_STATS = 5;
 const MANUAL_LOG_PULL_HANDS = 10;
 const STORAGE_KEYS = {
-  SETTINGS: "copilot_settings"
+  SETTINGS: "copilot_settings",
+  AGENT_ENGINE_SESSION: "copilot_agent_session"
 };
 const DEFAULT_SETTINGS = {
   apiKey: "",
@@ -96,7 +97,9 @@ const DEFAULT_SETTINGS = {
   // Never auto-acts unless you switch it on in the side panel, and it resets
   // to 'off' the moment you touch the table again.
   afkMode: "off",
-  logPullHands: MANUAL_LOG_PULL_HANDS
+  logPullHands: MANUAL_LOG_PULL_HANDS,
+  agentEngineResource: "",
+  agentEngineMode: "exploit"
 };
 function migrateModel(model) {
   if (!model) return DEFAULT_MODEL;

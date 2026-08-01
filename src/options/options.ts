@@ -1,6 +1,7 @@
 import { getSettings, setSettings } from '../shared/storage';
 import { AVAILABLE_MODELS, GEMINI_MODELS_URL, type Provider } from '../shared/constants';
 import { providerFromKey, sanitizeApiKey } from '../shared/apiKey';
+import { engineBaseUrl } from '../background/agentEngineClient';
 import type { Settings } from '../shared/types';
 
 const apiKeyInput = document.getElementById('api-key') as HTMLInputElement;
@@ -11,12 +12,17 @@ const saveStatus = document.getElementById('save-status')!;
 const keyProviderHint = document.getElementById('key-provider')!;
 const modelsStatus = document.getElementById('models-status')!;
 const refreshBtn = document.getElementById('btn-refresh-models') as HTMLButtonElement;
+const agentResource = document.getElementById('agent-resource') as HTMLInputElement;
+const agentMode = document.getElementById('agent-mode') as HTMLSelectElement;
 
 const PROVIDER_LABEL: Record<Provider, string> = {
   gemini: 'Google Gemini',
   openrouter: 'OpenRouter',
   naga: 'Naga',
   openai: 'OpenAI',
+  // Never inferred from a key — the agent is chosen by its resource name, and
+  // it authenticates with whichever Google key is configured.
+  agentengine: 'Agent Engine',
 };
 
 // ── Model dropdown ────────────────────────────────────────────────────────────
@@ -154,6 +160,8 @@ async function load(): Promise<void> {
   modelSelect.value = settings.model;
   showOverlays.checked = settings.showOverlays;
   showSidePanel.checked = settings.showSidePanel;
+  agentResource.value = settings.agentEngineResource;
+  agentMode.value = settings.agentEngineMode;
   paintKeyHint();
 }
 
@@ -167,7 +175,17 @@ document.getElementById('btn-save')?.addEventListener('click', async () => {
     model: modelSelect.value,
     showOverlays: showOverlays.checked,
     showSidePanel: showSidePanel.checked,
+    // Accept the "//aiplatform.googleapis.com/projects/…" form the console shows
+    // as well as the bare resource name.
+    agentEngineResource: agentResource.value.trim().replace(/^\/\/[^/]+\//, ''),
+    agentEngineMode: agentMode.value as Settings['agentEngineMode'],
   };
+
+  if (settings.agentEngineResource && !engineBaseUrl(settings.agentEngineResource)) {
+    saveStatus.textContent = 'Agent resource must look like projects/…/locations/…/reasoningEngines/…';
+    saveStatus.className = 'error';
+    return;
+  }
 
   await setSettings(settings);
 
