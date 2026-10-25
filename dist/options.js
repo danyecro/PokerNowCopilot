@@ -1,4 +1,4 @@
-import { h as getSettings, s as setSettings, G as GEMINI_MODELS_URL, A as AVAILABLE_MODELS } from "./chunks/storage.js";
+import { i as getSettings, s as setSettings, G as GEMINI_MODELS_URL, A as AVAILABLE_MODELS } from "./chunks/storage.js";
 import { s as sanitizeApiKey, e as engineBaseUrl, p as providerFromKey } from "./chunks/agentEngineClient.js";
 const apiKeyInput = document.getElementById("api-key");
 const modelSelect = document.getElementById("model");

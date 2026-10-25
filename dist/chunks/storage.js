@@ -23,7 +23,7 @@ const AVAILABLE_MODELS = [
   { id: "nvidia/nemotron-3-nano-30b-a3b:free", label: "Nemotron 3 Nano 30B (Free, lowest TTFB)", provider: "openrouter", reasoningDefaultOn: true },
   { id: "openai/gpt-oss-20b:free", label: "GPT-OSS 20B (Free)", provider: "openrouter", reasoningDefaultOn: true },
   { id: "nvidia/nemotron-nano-9b-v2:free", label: "Nemotron Nano 9B v2 (Free)", provider: "openrouter", reasoningDefaultOn: true },
-  { id: "cohere/north-mini-code:free", label: "North Mini Code (Free, 15 req/min)", provider: "openrouter", reasoningDefaultOn: true },
+  { id: 'minimax/minimax-m3:free', label: 'Minimax M3 (FREE NEW)⭐⭐', provider: 'openrouter' },
   { id: "openrouter/free", label: "Free Models Router (random free model)", provider: "openrouter" },
   // ── Naga free tier — key prefix "ng-"; 10 req/min, 100 req/day ────────────
   // docs.naga.ac/build/rate-limits
@@ -84,6 +84,8 @@ const THRESHOLDS = {
 };
 const MIN_HANDS_FOR_STATS = 5;
 const MANUAL_LOG_PULL_HANDS = 10;
+const LOG_REQUEST_GAP_MS = 1200;
+const LOG_REQUEST_LATENCY_MS = 500;
 const STORAGE_KEYS = {
   SETTINGS: "copilot_settings",
   AGENT_ENGINE_SESSION: "copilot_agent_session"
@@ -125,6 +127,7 @@ export {
   AVAILABLE_MODELS as A,
   BACKOFF_BASE_MS as B,
   GEMINI_MODELS_URL as G,
+  LOG_REQUEST_GAP_MS as L,
   MANUAL_LOG_PULL_HANDS as M,
   NAGA_BASE_URL as N,
   OPENAI_BASE_URL as O,
@@ -132,14 +135,15 @@ export {
   STORAGE_KEYS as S,
   THRESHOLDS as T,
   BACKOFF_CAP_MS as a,
-  MAX_ATTEMPTS as b,
-  MAX_RETRY_AFTER_MS as c,
-  MIN_HANDS_FOR_STATS as d,
-  OPENROUTER_BASE_URL as e,
-  canDisableThinking as f,
-  geminiStreamUrl as g,
-  getSettings as h,
-  hasReasoningOnByDefault as i,
+  LOG_REQUEST_LATENCY_MS as b,
+  MAX_ATTEMPTS as c,
+  MAX_RETRY_AFTER_MS as d,
+  MIN_HANDS_FOR_STATS as e,
+  OPENROUTER_BASE_URL as f,
+  canDisableThinking as g,
+  geminiStreamUrl as h,
+  getSettings as i,
+  hasReasoningOnByDefault as j,
   setSettings as s
 };
 //# sourceMappingURL=storage.js.map

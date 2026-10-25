@@ -100,7 +100,7 @@
     { id: "nvidia/nemotron-3-nano-30b-a3b:free", label: "Nemotron 3 Nano 30B (Free, lowest TTFB)", provider: "openrouter", reasoningDefaultOn: true },
     { id: "openai/gpt-oss-20b:free", label: "GPT-OSS 20B (Free)", provider: "openrouter", reasoningDefaultOn: true },
     { id: "nvidia/nemotron-nano-9b-v2:free", label: "Nemotron Nano 9B v2 (Free)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "cohere/north-mini-code:free", label: "North Mini Code (Free, 15 req/min)", provider: "openrouter", reasoningDefaultOn: true },
+    { id: 'minimax/minimax-m3:free', label: 'Minimax M3 (FREE NEW)⭐⭐', provider: 'openrouter' },
     { id: "openrouter/free", label: "Free Models Router (random free model)", provider: "openrouter" },
     // ── Naga free tier — key prefix "ng-"; 10 req/min, 100 req/day ────────────
     // docs.naga.ac/build/rate-limits
@@ -144,6 +144,7 @@
   const HAND_END_DEBOUNCE_MS = 600;
   const LOG_MODAL_TIMEOUT_MS = 3e3;
   const MANUAL_LOG_PULL_HANDS = 10;
+  const LOG_REQUEST_GAP_MS = 1200;
   const STORAGE_KEYS = {
     SETTINGS: "copilot_settings",
     ALL_PLAYER_STATS: "copilot_player_stats",
@@ -1093,13 +1094,19 @@
   function getGameId() {
     return location.pathname.match(/\/games\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
   }
-  const HAND_START_NUM = /^-- starting hand #(\d+)/;
+  class RateLimitedError extends Error {
+    constructor(handNumber) {
+      super(`log_v3 ${handNumber ?? "current"} → HTTP 429 (rate limited)`);
+      this.name = "RateLimitedError";
+    }
+  }
   async function fetchHandLog(gameId, handNumber) {
     const query = handNumber == null ? "" : `?hand_number=${handNumber}`;
     const res = await fetch(`/api/games/${gameId}/log_v3${query}`, {
       credentials: "include",
       headers: { accept: "application/json, text/plain, */*" }
     });
+    if (res.status === 429) throw new RateLimitedError(handNumber);
     if (!res.ok) throw new Error(`log_v3 ${handNumber ?? "current"} → HTTP ${res.status}`);
     const body = await res.json();
     const entries = toEntries(body);
@@ -1115,42 +1122,62 @@
     }
     return [];
   }
-  async function fetchRecentHands(gameId, count, onProgress) {
-    const currentLines = await fetchHandLog(gameId);
-    const currentNum = handNumberOf(currentLines);
-    if (currentNum == null) {
-      return { lines: currentLines, handNumbers: [], failed: 0 };
-    }
+  async function fetchRecentHands(gameId, count, latestHandNumber2, onProgress) {
     const targets = [];
-    for (let n = currentNum - 1; n >= 1 && targets.length < count; n--) targets.push(n);
-    const byHand = /* @__PURE__ */ new Map([[currentNum, currentLines]]);
+    for (let n = latestHandNumber2; n >= 1 && targets.length < count + 1; n--) targets.push(n);
+    const byHand = /* @__PURE__ */ new Map();
     let failed = 0;
-    let done = 0;
     const total = targets.length;
     onProgress?.(0, total);
-    const CONCURRENCY = 4;
-    const queue = targets.slice();
-    await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-        for (let n = queue.shift(); n !== void 0; n = queue.shift()) {
-          try {
-            byHand.set(n, await fetchHandLog(gameId, n));
-          } catch (e) {
-            failed++;
-            console.warn(`[Copilot] Log fetch failed for hand #${n}:`, e);
-          }
-          onProgress?.(++done, total);
+    for (let i = 0; i < targets.length; i++) {
+      const n = targets[i];
+      try {
+        const lines2 = await fetchHandLog(gameId, n);
+        if (lines2.length === 0) continue;
+        byHand.set(n, lines2);
+      } catch (e) {
+        failed++;
+        if (e instanceof RateLimitedError) {
+          console.warn("[Copilot] Log API rate limited — stopping this pull early");
+          break;
         }
-      })
-    );
+        console.warn(`[Copilot] Log fetch failed for hand #${n}:`, e);
+      }
+      onProgress?.(i + 1, total);
+      if (i < targets.length - 1) await sleep(LOG_REQUEST_GAP_MS);
+    }
     const handNumbers = [...byHand.keys()].sort((a, b) => b - a);
     const lines = [...byHand.keys()].sort((a, b) => a - b).flatMap((n) => byHand.get(n) ?? []);
     return { lines, handNumbers, failed };
   }
-  function handNumberOf(lines) {
-    for (const line of lines) {
-      const m = line.match(HAND_START_NUM);
-      if (m) return Number(m[1]);
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  async function findLatestHandNumber(gameId, hint, maxSteps = 6) {
+    let best = null;
+    let n = Math.max(1, hint);
+    for (let step = 0; step < maxSteps; step++) {
+      let exists;
+      try {
+        exists = (await fetchHandLog(gameId, n)).length > 0;
+      } catch {
+        break;
+      }
+      if (!exists) break;
+      best = n;
+      n++;
+      await sleep(LOG_REQUEST_GAP_MS);
+    }
+    if (best !== null) return best;
+    n = Math.max(1, hint - 1);
+    for (let step = 0; step < maxSteps && n >= 1; step++) {
+      try {
+        if ((await fetchHandLog(gameId, n)).length > 0) return n;
+      } catch {
+        break;
+      }
+      n--;
+      await sleep(LOG_REQUEST_GAP_MS);
     }
     return null;
   }
@@ -1714,12 +1741,41 @@
     }
     await runLogPull();
   }
+  let latestHandNumber = null;
+  async function readHandNumberFromModal() {
+    try {
+      const lines = logEntriesToLines(await pullLogEntries({ waitForFree: true }));
+      for (const line of lines) {
+        const m = line.match(/^-- starting hand #(\d+)/);
+        if (m) return Number(m[1]);
+      }
+    } catch (e) {
+      console.warn("[Copilot] Could not read the hand number from the modal:", e);
+    }
+    return null;
+  }
   async function readLogLines(minHands) {
     const gameId = getGameId();
     const count = minHands ?? 1;
     if (gameId) {
       try {
-        const result = await fetchRecentHands(gameId, count, (done, total) => {
+        if (latestHandNumber == null) {
+          latestHandNumber = await readHandNumberFromModal();
+          if (latestHandNumber != null) {
+            console.log(`[Copilot] Bootstrapped hand number from the log modal: #${latestHandNumber}`);
+          }
+        }
+        const hint = latestHandNumber ?? 1;
+        const latest = await findLatestHandNumber(gameId, hint);
+        if (latest == null) {
+          console.warn("[Copilot] Could not determine the current hand number — using the modal");
+          throw new Error("no hand number");
+        }
+        if (latest !== latestHandNumber) {
+          console.log(`[Copilot] Table is on hand #${latest}`);
+          latestHandNumber = latest;
+        }
+        const result = await fetchRecentHands(gameId, count, latest, (done, total) => {
           if (minHands && total > 5) {
             chrome.runtime.sendMessage({
               type: "LOG_PULL_PROGRESS",

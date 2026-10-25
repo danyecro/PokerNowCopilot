@@ -1,5 +1,5 @@
 import { c as cardToString, b as boardToString } from "./chunks/cardUtils.js";
-import { d as MIN_HANDS_FOR_STATS, T as THRESHOLDS, h as getSettings, s as setSettings, S as STORAGE_KEYS, M as MANUAL_LOG_PULL_HANDS } from "./chunks/storage.js";
+import { e as MIN_HANDS_FOR_STATS, T as THRESHOLDS, i as getSettings, s as setSettings, S as STORAGE_KEYS, M as MANUAL_LOG_PULL_HANDS, L as LOG_REQUEST_GAP_MS, b as LOG_REQUEST_LATENCY_MS } from "./chunks/storage.js";
 function getBadgeColor(stats) {
   if (stats.handsSeen < MIN_HANDS_FOR_STATS) return "gray";
   const isAggressive = stats.vpip > THRESHOLDS.VPIP_LOOSE / 100 && stats.af > THRESHOLDS.AF_AGGRESSIVE;
@@ -343,7 +343,8 @@ function setLogPulling(on) {
   logBtn.textContent = on ? "📜 …" : "📜 Log";
 }
 function logPullTimeoutMs(hands) {
-  return 1e4 + hands * 700;
+  const perHand = LOG_REQUEST_GAP_MS + LOG_REQUEST_LATENCY_MS;
+  return 15e3 + (hands + 1) * perHand;
 }
 logBtn?.addEventListener("click", () => {
   const hands = selectedLogHands();
