@@ -1,4 +1,4 @@
-import { h as getSettings, g as geminiStreamUrl, e as OPENROUTER_BASE_URL, N as NAGA_BASE_URL, O as OPENAI_BASE_URL, A as AVAILABLE_MODELS, b as MAX_ATTEMPTS, R as RETRYABLE_STATUSES, f as canDisableThinking, i as hasReasoningOnByDefault, c as MAX_RETRY_AFTER_MS, B as BACKOFF_BASE_MS, a as BACKOFF_CAP_MS } from "./chunks/storage.js";
+import { i as getSettings, h as geminiStreamUrl, f as OPENROUTER_BASE_URL, N as NAGA_BASE_URL, O as OPENAI_BASE_URL, A as AVAILABLE_MODELS, c as MAX_ATTEMPTS, R as RETRYABLE_STATUSES, g as canDisableThinking, j as hasMandatoryReasoning, k as hasReasoningOnByDefault, d as MAX_RETRY_AFTER_MS, B as BACKOFF_BASE_MS, a as BACKOFF_CAP_MS } from "./chunks/storage.js";
 import { s as sanitizeApiKey, a as apiKeyProblem, g as getSessionId, b as buildRunRequest, r as resetSession, p as providerFromKey } from "./chunks/agentEngineClient.js";
 import { c as cardToString, b as boardToString } from "./chunks/cardUtils.js";
 function buildPrompt(gameState, stats) {
@@ -181,8 +181,13 @@ function buildBody(provider, modelId, system, user, maxTokens, temperature) {
   if (provider === "naga") {
     return { ...base, max_completion_tokens: maxTokens };
   }
-  if (provider === "openrouter" && hasReasoningOnByDefault(modelId)) {
-    base.reasoning = { enabled: false };
+  if (provider === "openrouter") {
+    if (hasMandatoryReasoning(modelId)) {
+      return { ...base, max_tokens: maxTokens * 4 };
+    }
+    if (hasReasoningOnByDefault(modelId)) {
+      base.reasoning = { enabled: false };
+    }
   }
   return { ...base, max_tokens: maxTokens };
 }

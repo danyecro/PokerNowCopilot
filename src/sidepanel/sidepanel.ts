@@ -5,7 +5,7 @@ import { getBadgeColor } from '../ui/colors';
 import { computeEdgeHints } from '../shared/edgeIndicator';
 import { calcEquity } from '../equity/equityCalc';
 import { getSettings, setSettings } from '../shared/storage';
-import { MANUAL_LOG_PULL_HANDS, STORAGE_KEYS } from '../shared/constants';
+import { LOG_REQUEST_GAP_MS, LOG_REQUEST_LATENCY_MS, MANUAL_LOG_PULL_HANDS, STORAGE_KEYS } from '../shared/constants';
 
 let port: chrome.runtime.Port | null = null;
 let currentStats: Record<string, PlayerStats> = {};
@@ -128,9 +128,18 @@ function setLogPulling(on: boolean): void {
   logBtn.textContent = on ? '📜 …' : '📜 Log';
 }
 
-/** Deadline scaled to the work: one request per hand, four at a time. */
+/**
+ * Deadline scaled to the work: one request per hand, issued **sequentially**
+ * LOG_REQUEST_GAP_MS apart because the endpoint 429s on bursts.
+ *
+ * This used to assume four requests in flight at once (`hands * 700`). After the
+ * API was paced, a 50-hand pull needed ~70s against a 45s budget, so the button
+ * reported a timeout on a pull that was still running fine.
+ */
 function logPullTimeoutMs(hands: number): number {
-  return 10000 + hands * 700;
+  const perHand = LOG_REQUEST_GAP_MS + LOG_REQUEST_LATENCY_MS;
+  // +1 hand for the current one, plus slack for the modal bootstrap.
+  return 15000 + (hands + 1) * perHand;
 }
 
 logBtn?.addEventListener('click', () => {

@@ -4,7 +4,7 @@ import { clearActionHighlight, highlightAction, findActionButton } from './actio
 import { cancelAfkAction, scheduleAfkAction } from './afkFolder';
 import { setSettings } from '../shared/storage';
 import { pullLogEntries, pullLogPages } from './logPuller';
-import { fetchRecentHands, getGameId } from './logApi';
+import { fetchRecentHands, findLatestHandNumber, getGameId } from './logApi';
 import { snapshotGameState } from './gameStateReader';
 import {
   extractCompletedHandBlocksFromLines, logEntriesToLines, parseHand,
@@ -115,13 +115,57 @@ async function onHandEnd(): Promise<void> {
  * Log lines for the last `minHands` hands (default: the current one and its
  * predecessor), via the API — falling back to the log modal if that fails.
  */
+// Highest hand number known to exist at this table. The API cannot tell us —
+// a request without hand_number returns hand #1 — so it is discovered once and
+// then carried forward, re-probed from the last value as the table advances.
+let latestHandNumber: number | null = null;
+
+/**
+ * The hand number the log modal opens on — the hand in play. Free and instant
+ * compared with probing the rate-limited API upwards from #1.
+ */
+async function readHandNumberFromModal(): Promise<number | null> {
+  try {
+    const lines = logEntriesToLines(await pullLogEntries({ waitForFree: true }));
+    for (const line of lines) {
+      const m = line.match(/^-- starting hand #(\d+)/);
+      if (m) return Number(m[1]);
+    }
+  } catch (e) {
+    console.warn('[Copilot] Could not read the hand number from the modal:', e);
+  }
+  return null;
+}
+
 async function readLogLines(minHands?: number): Promise<string[]> {
   const gameId = getGameId();
   const count = minHands ?? 1;
 
   if (gameId) {
     try {
-      const result = await fetchRecentHands(gameId, count, (done, total) => {
+      // Cold start: ask the modal, which names the live hand for free. Probing
+      // up from 1 would need one rate-limited request per hand — at hand #300
+      // that is minutes, and a capped walk silently stops at the wrong hand.
+      if (latestHandNumber == null) {
+        latestHandNumber = await readHandNumberFromModal();
+        if (latestHandNumber != null) {
+          console.log(`[Copilot] Bootstrapped hand number from the log modal: #${latestHandNumber}`);
+        }
+      }
+
+      // From there the table only moves forward, so a short walk suffices.
+      const hint = latestHandNumber ?? 1;
+      const latest = await findLatestHandNumber(gameId, hint);
+      if (latest == null) {
+        console.warn('[Copilot] Could not determine the current hand number — using the modal');
+        throw new Error('no hand number');
+      }
+      if (latest !== latestHandNumber) {
+        console.log(`[Copilot] Table is on hand #${latest}`);
+        latestHandNumber = latest;
+      }
+
+      const result = await fetchRecentHands(gameId, count, latest, (done, total) => {
         // Only worth reporting on a manual pull of many hands.
         if (minHands && total > 5) {
           chrome.runtime.sendMessage({

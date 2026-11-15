@@ -77,57 +77,158 @@
   }
   const DEFAULT_MODEL = "gemini-2.5-flash";
   const AVAILABLE_MODELS = [
-    // ── Google Gemini API (key: AIza...) — ai.google.dev/gemini-api ───────────
+    // ── Google Gemini API (key: AIza… or AQ.…) — ai.google.dev/gemini-api ─────
     // The options page can refresh this list from the live /v1beta/models
     // endpoint, which is authoritative; these are the stable ids to start from.
-    { id: "gemini-2.5-flash", label: "⭐ Gemini 2.5 Flash (fast, free tier)", provider: "gemini" },
+    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash (fast, free tier)", provider: "gemini", suggested: true },
     { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro (strongest)", provider: "gemini" },
     { id: "gemini-2.5-flash-lite", label: "Gemini 2.5 Flash-Lite (cheapest)", provider: "gemini" },
     { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash", provider: "gemini" },
-    // ── OpenRouter FREE (key: sk-or-...) — catalog checked 2026-07-27 ─────────
-    // Excluded from the live free list on purpose:
-    //   google/gemma-4-31b-it:free            90% of requests rate-limited (11k ok / 103k limited per day)
-    //   poolside/laguna-s-2.1:free            31% rate-limited
-    //   poolside/laguna-m.1:free              deprecation_date 2026-07-28
-    //   poolside/laguna-xs-2.1:free           agentic-coding model, wrong fit
-    //   nvidia/nemotron-nano-12b-v2-vl:free   endpoint status -2 (deranked)
-    //   nvidia/nemotron-3.5-content-safety    guardrail classifier, not a chat model
-    //   *-embed-*, *-rerank-*                 embeddings/rerank endpoints
-    { id: "inclusionai/ling-3.0-flash:free", label: "⭐ Ling 3.0 Flash (Free, Fastest)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "nvidia/nemotron-3-ultra-550b-a55b:free", label: "Nemotron 3 Ultra 550B (Free, Smartest)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "nvidia/nemotron-3-super-120b-a12b:free", label: "Nemotron 3 Super 120B (Free)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "google/gemma-4-26b-a4b-it:free", label: "Gemma 4 26B (Free, no reasoning)", provider: "openrouter" },
-    { id: "nvidia/nemotron-3-nano-30b-a3b:free", label: "Nemotron 3 Nano 30B (Free, lowest TTFB)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "openai/gpt-oss-20b:free", label: "GPT-OSS 20B (Free)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "nvidia/nemotron-nano-9b-v2:free", label: "Nemotron Nano 9B v2 (Free)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "cohere/north-mini-code:free", label: "North Mini Code (Free, 15 req/min)", provider: "openrouter", reasoningDefaultOn: true },
-    { id: "openrouter/free", label: "Free Models Router (random free model)", provider: "openrouter" },
-    // ── Naga free tier — key prefix "ng-"; 10 req/min, 100 req/day ────────────
+    // ── OpenRouter FREE (key: sk-or-…) — catalog checked 2026-11-15 ───────────
+    // The suggested three: the strongest reasoner for a considered line, the
+    // fastest route for in-hand answers, and the one model that does not think
+    // by default at all, so nothing can eat the token budget.
+    {
+      id: "nvidia/nemotron-3-ultra-550b-a55b:free",
+      label: "Nemotron 3 Ultra 550B (Free, strongest)",
+      provider: "openrouter",
+      suggested: true,
+      reasoningDefaultOn: true
+    },
+    {
+      id: "nvidia/nemotron-3.5-lightning:free",
+      label: "Nemotron 3.5 Lightning (Free, fastest)",
+      provider: "openrouter",
+      suggested: true
+    },
+    {
+      id: "google/gemma-4-26b-a4b-it:free",
+      label: "Gemma 4 26B A4B (Free, no thinking trace)",
+      provider: "openrouter",
+      suggested: true
+    },
+    // Also solid, just not the first pick.
+    {
+      id: "inclusionai/ling-3.2-flash:free",
+      label: "Ling 3.2 Flash (Free, hybrid reasoning)",
+      provider: "openrouter",
+      reasoningDefaultOn: true
+    },
+    {
+      // Preview route: OpenRouter lists expiration_date 2026-12-31 for it.
+      id: "dots-studio/dots-3-note-preview:free",
+      label: "Dots3-Note Preview (Free, expires 2026-12-31)",
+      provider: "openrouter"
+    },
+    {
+      // Dense 31B on a free route — historically the first one to rate-limit.
+      id: "google/gemma-4-31b-it:free",
+      label: "Gemma 4 31B (Free, often rate-limited)",
+      provider: "openrouter"
+    },
+    {
+      // reasoning.mandatory with "high" as the only supported effort, so the
+      // trace always comes and the cap has to cover it.
+      id: "baidu/ernie-5.5-flash-preview:free",
+      label: "ERNIE 5.5 Flash Preview (Free, always thinks)",
+      provider: "openrouter",
+      reasoningMandatory: true
+    },
+    {
+      id: "thinkingmachines/inkling-2-small:free",
+      label: "Inkling 2 Small (Free, always thinks)",
+      provider: "openrouter",
+      reasoningMandatory: true
+    },
+    // ── Multimodal free routes ───────────────────────────────────────────────
+    // Nothing in this extension sends images yet; these are here as text models
+    // with a larger upstream, and for a future screenshot-based table reader.
+    {
+      id: "nvidia/nemotron-3.5-super-vl:free",
+      label: "Nemotron 3.5 Super VL (Free, vision)",
+      provider: "openrouter"
+    },
+    {
+      id: "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+      label: "Nemotron 3 Nano Omni (Free, multimodal)",
+      provider: "openrouter",
+      reasoningDefaultOn: true
+    },
+    // ── Coding and lightweight free routes ───────────────────────────────────
+    // Agentic coding models and a 1.7B fallback: the wrong shape for hand
+    // analysis, useful when working on the copilot itself or when every other
+    // free route is rate-limited.
+    {
+      id: "cohere/north-mini-code:free",
+      label: "North Mini Code (Free, coding)",
+      provider: "openrouter"
+    },
+    {
+      id: "particle-ai/particle-1:free",
+      label: "Particle-1 (Free, coding agent)",
+      provider: "openrouter",
+      reasoningDefaultOn: true
+    },
+    {
+      id: "recursive/flint-v1.0:free",
+      label: "Flint (Free, coding, always thinks)",
+      provider: "openrouter",
+      reasoningMandatory: true
+    },
+    {
+      id: "liquid/lfm-3-1.7b:free",
+      label: "LFM3 1.7B (Free, lightweight, always thinks)",
+      provider: "openrouter",
+      reasoningMandatory: true
+    },
+    // Picks at random among whichever free models are up right now. A useful
+    // fallback, but the model behind it changes between requests.
+    {
+      id: "openrouter/free",
+      label: "Free Models Router (random free model)",
+      provider: "openrouter"
+    },
+    // ── Naga free tier — key prefix "ng-"; 10 req/min, 100 req/day ───────────
     // docs.naga.ac/build/rate-limits
-    { id: "llama-3.3-70b-instruct:free", label: "⭐ Llama 3.3 70B (Free via Naga)", provider: "naga" },
+    { id: "llama-3.3-70b-instruct:free", label: "Llama 3.3 70B (Free via Naga)", provider: "naga", suggested: true },
     { id: "nemotron-3-super-120b-a12b:free", label: "Nemotron Super 120B (Free via Naga)", provider: "naga" },
     // Perplexity route behind Naga's proxy. Verified 2026-07-27: returns 503
     // "upstream source" for every request shape. Kept selectable because the
     // route has worked before and may recover — the retry logic and the explicit
     // 503 message in aiClient handle it while it is down.
     { id: "sonar:free", label: "Sonar (Free via Naga) — upstream flaky", provider: "naga" },
-    // ── OpenRouter PAID (key: sk-or-...) ─────────────────────────────────────
-    // NOTE: the old 'anthropic/claude-sonnet-4-5' id used the wrong slug shape;
-    // OpenRouter's own traffic data lists 'anthropic/claude-sonnet-5-20260630'.
+    // ── OpenRouter PAID (key: sk-or-…) ───────────────────────────────────────
     { id: "anthropic/claude-sonnet-5", label: "Claude Sonnet 5 (Paid)", provider: "openrouter" },
     { id: "openai/gpt-4o", label: "GPT-4o via OpenRouter (Paid)", provider: "openrouter" }
   ];
   const RETIRED_MODELS = {
+    // Ids that never existed upstream — shipped by an earlier edit of this file.
+    "nvidia/nemotron-3-ultra:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-nano-omni:free": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "dots-studio/dots3-note-preview:free": "dots-studio/dots-3-note-preview:free",
+    "recursive/flint:free": "recursive/flint-v1.0:free",
+    "thinkingmachines/inkling:free": "thinkingmachines/inkling-2-small:free",
+    "thinkingmachines/inkling-small:free": "thinkingmachines/inkling-2-small:free",
+    "xingchen-agi/xing4.0-29b-a4b:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "liquid/lfm-2.5-2.6b:free": "liquid/lfm-3-1.7b:free",
+    // Gone from the free catalog.
+    "nvidia/nemotron-3-super-120b-a12b:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-nano-30b-a3b:free": "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-nano-9b-v2:free": "nvidia/nemotron-3.5-lightning:free",
+    "inclusionai/ling-3.0-flash:free": "inclusionai/ling-3.2-flash:free",
+    "openai/gpt-oss-20b:free": "google/gemma-4-26b-a4b-it:free",
+    "openai/gpt-oss-120b:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "minimax/minimax-m3:free": "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nousresearch/hermes-3-llama-3.1-405b:free": "inclusionai/ling-3.2-flash:free",
+    "meta-llama/llama-3.3-70b-instruct:free": "inclusionai/ling-3.2-flash:free",
+    "moonshotai/kimi-k2.6:free": "inclusionai/ling-3.2-flash:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free": "inclusionai/ling-3.2-flash:free",
+    "meta-llama/llama-3.2-3b-instruct:free": "google/gemma-4-26b-a4b-it:free",
     // Naga (bare ids)
     "llama-4-scout-17b-16e-instruct:free": "llama-3.3-70b-instruct:free",
     "nemotron-3-ultra-550b-a55b:free": "nemotron-3-super-120b-a12b:free",
-    // OpenRouter (vendor-prefixed ids) — gone from the free catalog as of 2026-07-27
-    "nousresearch/hermes-3-llama-3.1-405b:free": "inclusionai/ling-3.0-flash:free",
-    "meta-llama/llama-3.3-70b-instruct:free": "inclusionai/ling-3.0-flash:free",
-    "moonshotai/kimi-k2.6:free": "inclusionai/ling-3.0-flash:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free": "inclusionai/ling-3.0-flash:free",
-    "openai/gpt-oss-120b:free": "openai/gpt-oss-20b:free",
-    "meta-llama/llama-3.2-3b-instruct:free": "nvidia/nemotron-3-nano-30b-a3b:free",
+    // Paid
     "anthropic/claude-sonnet-4-5": "anthropic/claude-sonnet-5"
   };
   function isKnownModel(id) {
@@ -144,6 +245,7 @@
   const HAND_END_DEBOUNCE_MS = 600;
   const LOG_MODAL_TIMEOUT_MS = 3e3;
   const MANUAL_LOG_PULL_HANDS = 10;
+  const LOG_REQUEST_GAP_MS = 1200;
   const STORAGE_KEYS = {
     SETTINGS: "copilot_settings",
     ALL_PLAYER_STATS: "copilot_player_stats",
@@ -1093,13 +1195,19 @@
   function getGameId() {
     return location.pathname.match(/\/games\/([A-Za-z0-9_-]+)/)?.[1] ?? null;
   }
-  const HAND_START_NUM = /^-- starting hand #(\d+)/;
+  class RateLimitedError extends Error {
+    constructor(handNumber) {
+      super(`log_v3 ${handNumber ?? "current"} → HTTP 429 (rate limited)`);
+      this.name = "RateLimitedError";
+    }
+  }
   async function fetchHandLog(gameId, handNumber) {
     const query = handNumber == null ? "" : `?hand_number=${handNumber}`;
     const res = await fetch(`/api/games/${gameId}/log_v3${query}`, {
       credentials: "include",
       headers: { accept: "application/json, text/plain, */*" }
     });
+    if (res.status === 429) throw new RateLimitedError(handNumber);
     if (!res.ok) throw new Error(`log_v3 ${handNumber ?? "current"} → HTTP ${res.status}`);
     const body = await res.json();
     const entries = toEntries(body);
@@ -1115,42 +1223,62 @@
     }
     return [];
   }
-  async function fetchRecentHands(gameId, count, onProgress) {
-    const currentLines = await fetchHandLog(gameId);
-    const currentNum = handNumberOf(currentLines);
-    if (currentNum == null) {
-      return { lines: currentLines, handNumbers: [], failed: 0 };
-    }
+  async function fetchRecentHands(gameId, count, latestHandNumber2, onProgress) {
     const targets = [];
-    for (let n = currentNum - 1; n >= 1 && targets.length < count; n--) targets.push(n);
-    const byHand = /* @__PURE__ */ new Map([[currentNum, currentLines]]);
+    for (let n = latestHandNumber2; n >= 1 && targets.length < count + 1; n--) targets.push(n);
+    const byHand = /* @__PURE__ */ new Map();
     let failed = 0;
-    let done = 0;
     const total = targets.length;
     onProgress?.(0, total);
-    const CONCURRENCY = 4;
-    const queue = targets.slice();
-    await Promise.all(
-      Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
-        for (let n = queue.shift(); n !== void 0; n = queue.shift()) {
-          try {
-            byHand.set(n, await fetchHandLog(gameId, n));
-          } catch (e) {
-            failed++;
-            console.warn(`[Copilot] Log fetch failed for hand #${n}:`, e);
-          }
-          onProgress?.(++done, total);
+    for (let i = 0; i < targets.length; i++) {
+      const n = targets[i];
+      try {
+        const lines2 = await fetchHandLog(gameId, n);
+        if (lines2.length === 0) continue;
+        byHand.set(n, lines2);
+      } catch (e) {
+        failed++;
+        if (e instanceof RateLimitedError) {
+          console.warn("[Copilot] Log API rate limited — stopping this pull early");
+          break;
         }
-      })
-    );
+        console.warn(`[Copilot] Log fetch failed for hand #${n}:`, e);
+      }
+      onProgress?.(i + 1, total);
+      if (i < targets.length - 1) await sleep(LOG_REQUEST_GAP_MS);
+    }
     const handNumbers = [...byHand.keys()].sort((a, b) => b - a);
     const lines = [...byHand.keys()].sort((a, b) => a - b).flatMap((n) => byHand.get(n) ?? []);
     return { lines, handNumbers, failed };
   }
-  function handNumberOf(lines) {
-    for (const line of lines) {
-      const m = line.match(HAND_START_NUM);
-      if (m) return Number(m[1]);
+  function sleep(ms) {
+    return new Promise((r) => setTimeout(r, ms));
+  }
+  async function findLatestHandNumber(gameId, hint, maxSteps = 6) {
+    let best = null;
+    let n = Math.max(1, hint);
+    for (let step = 0; step < maxSteps; step++) {
+      let exists;
+      try {
+        exists = (await fetchHandLog(gameId, n)).length > 0;
+      } catch {
+        break;
+      }
+      if (!exists) break;
+      best = n;
+      n++;
+      await sleep(LOG_REQUEST_GAP_MS);
+    }
+    if (best !== null) return best;
+    n = Math.max(1, hint - 1);
+    for (let step = 0; step < maxSteps && n >= 1; step++) {
+      try {
+        if ((await fetchHandLog(gameId, n)).length > 0) return n;
+      } catch {
+        break;
+      }
+      n--;
+      await sleep(LOG_REQUEST_GAP_MS);
     }
     return null;
   }
@@ -1714,12 +1842,41 @@
     }
     await runLogPull();
   }
+  let latestHandNumber = null;
+  async function readHandNumberFromModal() {
+    try {
+      const lines = logEntriesToLines(await pullLogEntries({ waitForFree: true }));
+      for (const line of lines) {
+        const m = line.match(/^-- starting hand #(\d+)/);
+        if (m) return Number(m[1]);
+      }
+    } catch (e) {
+      console.warn("[Copilot] Could not read the hand number from the modal:", e);
+    }
+    return null;
+  }
   async function readLogLines(minHands) {
     const gameId = getGameId();
     const count = minHands ?? 1;
     if (gameId) {
       try {
-        const result = await fetchRecentHands(gameId, count, (done, total) => {
+        if (latestHandNumber == null) {
+          latestHandNumber = await readHandNumberFromModal();
+          if (latestHandNumber != null) {
+            console.log(`[Copilot] Bootstrapped hand number from the log modal: #${latestHandNumber}`);
+          }
+        }
+        const hint = latestHandNumber ?? 1;
+        const latest = await findLatestHandNumber(gameId, hint);
+        if (latest == null) {
+          console.warn("[Copilot] Could not determine the current hand number — using the modal");
+          throw new Error("no hand number");
+        }
+        if (latest !== latestHandNumber) {
+          console.log(`[Copilot] Table is on hand #${latest}`);
+          latestHandNumber = latest;
+        }
+        const result = await fetchRecentHands(gameId, count, latest, (done, total) => {
           if (minHands && total > 5) {
             chrome.runtime.sendMessage({
               type: "LOG_PULL_PROGRESS",

@@ -13,6 +13,7 @@ import {
   BACKOFF_CAP_MS,
   MAX_RETRY_AFTER_MS,
   hasReasoningOnByDefault,
+  hasMandatoryReasoning,
   type Provider,
 } from '../shared/constants';
 import { apiKeyProblem, providerFromKey, sanitizeApiKey } from '../shared/apiKey';
@@ -144,8 +145,16 @@ function buildBody(
   // on by default, and reasoning tokens count against max_tokens. At 400–600
   // tokens the trace can consume the entire budget and the visible answer comes
   // back empty or truncated mid-sentence, so switch it off.
-  if (provider === 'openrouter' && hasReasoningOnByDefault(modelId)) {
-    base.reasoning = { enabled: false };
+  if (provider === 'openrouter') {
+    // A few free routes mark reasoning as mandatory — ERNIE 5.5 Flash only
+    // supports "high" effort at all. There the trace cannot be switched off,
+    // so the cap has to cover it as well, the same way Gemini Pro is handled.
+    if (hasMandatoryReasoning(modelId)) {
+      return { ...base, max_tokens: maxTokens * 4 };
+    }
+    if (hasReasoningOnByDefault(modelId)) {
+      base.reasoning = { enabled: false };
+    }
   }
   return { ...base, max_tokens: maxTokens };
 }
