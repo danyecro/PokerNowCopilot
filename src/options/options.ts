@@ -27,21 +27,34 @@ const PROVIDER_LABEL: Record<Provider, string> = {
 
 // ── Model dropdown ────────────────────────────────────────────────────────────
 
-/** Renders the catalog grouped by provider, keeping the current selection. */
-function paintModels(extra: ReadonlyArray<{ id: string; label: string; provider: Provider }> = []): void {
+type ListedModel = { id: string; label: string; provider: Provider; suggested?: boolean };
+
+/**
+ * Renders the catalog grouped by provider, keeping the current selection.
+ *
+ * Within a group the suggested models come first and carry a star: the free
+ * catalog is long enough that the ones worth picking for in-hand analysis
+ * would otherwise be lost between the coding and multimodal routes.
+ */
+function paintModels(extra: ReadonlyArray<ListedModel> = []): void {
   const selected = modelSelect.value;
   modelSelect.replaceChildren();
 
-  const all = [...extra, ...AVAILABLE_MODELS.filter(m => !extra.some(e => e.id === m.id))];
+  const all: ListedModel[] = [
+    ...extra,
+    ...AVAILABLE_MODELS.filter(m => !extra.some(e => e.id === m.id)),
+  ];
   const providers = [...new Set(all.map(m => m.provider))];
 
   for (const provider of providers) {
     const group = document.createElement('optgroup');
     group.label = PROVIDER_LABEL[provider];
-    for (const m of all.filter(x => x.provider === provider)) {
+    const inGroup = all.filter(x => x.provider === provider);
+    const ordered = [...inGroup.filter(m => m.suggested), ...inGroup.filter(m => !m.suggested)];
+    for (const m of ordered) {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = m.label;
+      opt.textContent = m.suggested ? `⭐ ${m.label}` : m.label;
       group.appendChild(opt);
     }
     modelSelect.appendChild(group);

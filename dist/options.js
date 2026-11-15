@@ -22,15 +22,20 @@ const PROVIDER_LABEL = {
 function paintModels(extra = []) {
   const selected = modelSelect.value;
   modelSelect.replaceChildren();
-  const all = [...extra, ...AVAILABLE_MODELS.filter((m) => !extra.some((e) => e.id === m.id))];
+  const all = [
+    ...extra,
+    ...AVAILABLE_MODELS.filter((m) => !extra.some((e) => e.id === m.id))
+  ];
   const providers = [...new Set(all.map((m) => m.provider))];
   for (const provider of providers) {
     const group = document.createElement("optgroup");
     group.label = PROVIDER_LABEL[provider];
-    for (const m of all.filter((x) => x.provider === provider)) {
+    const inGroup = all.filter((x) => x.provider === provider);
+    const ordered = [...inGroup.filter((m) => m.suggested), ...inGroup.filter((m) => !m.suggested)];
+    for (const m of ordered) {
       const opt = document.createElement("option");
       opt.value = m.id;
-      opt.textContent = m.label;
+      opt.textContent = m.suggested ? `⭐ ${m.label}` : m.label;
       group.appendChild(opt);
     }
     modelSelect.appendChild(group);
